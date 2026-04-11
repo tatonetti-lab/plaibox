@@ -337,3 +337,66 @@ def test_open_no_match(tmp_path):
     result = runner.invoke(cli, ["open", "nonexistent", "--config", str(config_path)])
 
     assert "no project" in result.output.lower() or result.exit_code != 0
+
+
+def test_tidy_prompts_for_stale_projects(tmp_path):
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    for space in ("sandbox", "projects", "archive"):
+        (root / space).mkdir()
+
+    old_proj = _make_project(root, "sandbox", "2026-03-01_old-experiment", {
+        "name": "old-experiment", "description": "An old experiment",
+        "status": "sandbox", "created": "2026-03-01", "tags": [], "tech": [],
+    })
+    # Make it look old
+    old_date = datetime.combine(date.today() - timedelta(days=60), datetime.min.time())
+    os.utime(old_proj, (old_date.timestamp(), old_date.timestamp()))
+
+    _make_project(root, "sandbox", "2026-04-10_fresh", {
+        "name": "fresh", "description": "A fresh project",
+        "status": "sandbox", "created": "2026-04-10", "tags": [], "tech": [],
+    })
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.dump({"root": str(root), "stale_days": 30}))
+
+    runner = CliRunner()
+    # Choose "skip" for the stale project
+    result = runner.invoke(
+        cli, ["tidy", "--config", str(config_path)],
+        input="s\n"
+    )
+
+    assert result.exit_code == 0
+    assert "old-experiment" in result.output
+    # Fresh project should not appear in tidy
+    assert "fresh" not in result.output
+
+
+def test_tidy_archive_action(tmp_path):
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    for space in ("sandbox", "projects", "archive"):
+        (root / space).mkdir()
+
+    old_proj = _make_project(root, "sandbox", "2026-03-01_stale-thing", {
+        "name": "stale-thing", "description": "A stale project",
+        "status": "sandbox", "created": "2026-03-01", "tags": [], "tech": [],
+    })
+    old_date = datetime.combine(date.today() - timedelta(days=60), datetime.min.time())
+    os.utime(old_proj, (old_date.timestamp(), old_date.timestamp()))
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.dump({"root": str(root), "stale_days": 30}))
+
+    runner = CliRunner()
+    # Choose "archive"
+    result = runner.invoke(
+        cli, ["tidy", "--config", str(config_path)],
+        input="a\n"
+    )
+
+    assert result.exit_code == 0
+    assert not old_proj.exists()
+    assert (root / "archive" / "2026-03-01_stale-thing").exists()

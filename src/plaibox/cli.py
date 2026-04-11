@@ -209,3 +209,52 @@ def open_cmd(query: str, config_path: str | None):
     else:
         click.echo("Invalid choice.")
         raise SystemExit(1)
+
+
+@cli.command()
+@click.option("--config", "config_path", default=None, help="Path to config file.")
+def tidy(config_path: str | None):
+    """Interactively triage stale sandbox projects."""
+    cfg = load_config(Path(config_path) if config_path else DEFAULT_CONFIG_PATH)
+    root = Path(cfg["root"]).expanduser()
+    stale_days = cfg["stale_days"]
+
+    projects = discover_projects(root)
+    cutoff = date.today() - timedelta(days=stale_days)
+
+    stale = [
+        p for p in projects
+        if p["space"] == "sandbox" and _last_modified(p["path"]) < cutoff
+    ]
+
+    if not stale:
+        click.echo("No stale sandbox projects. Nice!")
+        return
+
+    click.echo(f"Found {len(stale)} stale sandbox project(s):\n")
+
+    for p in stale:
+        meta = p["meta"]
+        click.echo(f"  {meta['name']} — {meta['description']}")
+        click.echo(f"  Created: {meta['created']}  |  Last modified: {_last_modified(p['path'])}")
+        action = click.prompt("  [p]romote / [a]rchive / [s]kip", type=click.Choice(["p", "a", "s"]))
+
+        if action == "p":
+            new_name = click.prompt("  Project name")
+            new_path = root / "projects" / new_name
+            if new_path.exists():
+                click.echo(f"  Error: {new_path} already exists. Skipping.")
+                continue
+            shutil.move(str(p["path"]), str(new_path))
+            meta["status"] = "project"
+            meta["name"] = new_name
+            write_metadata(new_path, meta)
+            click.echo(f"  Promoted to {new_path}\n")
+        elif action == "a":
+            new_path = root / "archive" / p["path"].name
+            shutil.move(str(p["path"]), str(new_path))
+            meta["status"] = "archived"
+            write_metadata(new_path, meta)
+            click.echo(f"  Archived.\n")
+        else:
+            click.echo(f"  Skipped.\n")
