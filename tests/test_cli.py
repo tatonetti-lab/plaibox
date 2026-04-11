@@ -150,3 +150,58 @@ def test_ls_stale_flag(tmp_path):
     assert result.exit_code == 0
     assert "old-thing" in result.output
     assert "new-thing" not in result.output
+
+
+def test_promote_moves_to_projects(tmp_path):
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    for space in ("sandbox", "projects", "archive"):
+        (root / space).mkdir()
+
+    proj = _make_project(root, "sandbox", "2026-04-10_my-experiment", {
+        "name": "my-experiment", "description": "An experiment",
+        "status": "sandbox", "created": "2026-04-10", "tags": [], "tech": [],
+    })
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.dump({"root": str(root), "stale_days": 30}))
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli, ["promote", "--config", str(config_path), "--dir", str(proj)],
+        input="cool-app\n"
+    )
+
+    assert result.exit_code == 0
+
+    # Should have moved to projects/cool-app
+    new_dir = root / "projects" / "cool-app"
+    assert new_dir.exists()
+    assert not proj.exists()
+
+    # Metadata should be updated
+    meta = yaml.safe_load((new_dir / ".plaibox.yaml").read_text())
+    assert meta["status"] == "project"
+    assert meta["name"] == "cool-app"
+
+
+def test_promote_rejects_non_sandbox(tmp_path):
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    for space in ("sandbox", "projects", "archive"):
+        (root / space).mkdir()
+
+    proj = _make_project(root, "projects", "already-promoted", {
+        "name": "already-promoted", "description": "Already a project",
+        "status": "project", "created": "2026-04-01", "tags": [], "tech": [],
+    })
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.dump({"root": str(root), "stale_days": 30}))
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli, ["promote", "--config", str(config_path), "--dir", str(proj)]
+    )
+
+    assert result.exit_code != 0 or "only promote sandbox" in result.output.lower()

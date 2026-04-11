@@ -1,4 +1,5 @@
 # src/plaibox/cli.py
+import shutil
 import subprocess
 from datetime import date, timedelta
 from pathlib import Path
@@ -7,7 +8,7 @@ import click
 import yaml
 
 from plaibox.config import load_config, DEFAULT_CONFIG_PATH
-from plaibox.metadata import write_metadata
+from plaibox.metadata import write_metadata, read_metadata
 from plaibox.project import slugify, make_sandbox_dirname, discover_projects, detect_tech
 
 
@@ -83,3 +84,37 @@ def _last_modified(path: Path) -> date:
     import os
     mtime = os.path.getmtime(path)
     return date.fromtimestamp(mtime)
+
+
+@cli.command()
+@click.option("--config", "config_path", default=None, help="Path to config file.")
+@click.option("--dir", "project_dir", default=".", help="Project directory to promote.")
+def promote(config_path: str | None, project_dir: str):
+    """Promote a sandbox project to projects."""
+    cfg = load_config(Path(config_path) if config_path else DEFAULT_CONFIG_PATH)
+    root = Path(cfg["root"]).expanduser()
+    project_path = Path(project_dir).resolve()
+
+    meta = read_metadata(project_path)
+    if meta is None:
+        click.echo("Error: not a plaibox project (no .plaibox.yaml found).", err=True)
+        raise SystemExit(1)
+
+    if meta["status"] != "sandbox":
+        click.echo("Error: can only promote sandbox projects.", err=True)
+        raise SystemExit(1)
+
+    new_name = click.prompt("Project name")
+    new_path = root / "projects" / new_name
+
+    if new_path.exists():
+        click.echo(f"Error: {new_path} already exists.", err=True)
+        raise SystemExit(1)
+
+    shutil.move(str(project_path), str(new_path))
+
+    meta["status"] = "project"
+    meta["name"] = new_name
+    write_metadata(new_path, meta)
+
+    click.echo(f"Promoted to {new_path}")
