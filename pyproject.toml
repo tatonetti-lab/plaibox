@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "plaibox"
+version = "0.1.0"
+description = "Lifecycle manager for vibe-coded projects"
+requires-python = ">=3.10"
+dependencies = [
+    "click>=8.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[project.scripts]
+plaibox = "plaibox.cli:cli"
+
+[tool.setuptools.packages.find]
+where = ["src"]
