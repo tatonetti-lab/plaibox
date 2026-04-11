@@ -21,3 +21,24 @@ def test_shell_init_script_handles_exit():
     script = shell_init_script()
     assert "exit" in script
     assert "_PLAIBOX_PREV_DIR" in script
+
+
+def test_shell_init_script_handles_claude():
+    script = shell_init_script()
+    assert "claude" in script
+    assert "script -q" in script
+
+
+def test_shell_init_script_handles_codex():
+    script = shell_init_script()
+    assert "codex" in script
+
+
+def test_shell_init_script_saves_session():
+    script = shell_init_script()
+    assert "plaibox session --save" in script
+
+
+def test_shell_init_script_shows_session_on_open():
+    script = shell_init_script()
+    assert "Resume session:" in script

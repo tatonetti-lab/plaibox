@@ -285,6 +285,29 @@ def tidy(config_path: str | None):
             click.echo(f"  Skipped.\n")
 
 
+@cli.command()
+@click.option("--save", "resume_cmd", default=None, help="Save a session resume command.")
+@click.option("--dir", "project_dir", default=".", help="Project directory.")
+def session(resume_cmd: str | None, project_dir: str):
+    """Show or save the AI session resume command for a project."""
+    project_path = Path(project_dir).resolve()
+    meta = read_metadata(project_path)
+    if meta is None:
+        click.echo("Error: not a plaibox project (no .plaibox.yaml found).", err=True)
+        raise SystemExit(1)
+
+    if resume_cmd:
+        meta["session"] = resume_cmd
+        write_metadata(project_path, meta)
+        click.echo(f"Session saved: {resume_cmd}")
+    else:
+        saved = meta.get("session")
+        if saved:
+            click.echo(f"Resume session: {saved}")
+        else:
+            click.echo("No session saved for this project.")
+
+
 @cli.command("init-shell")
 def init_shell():
     """Print shell function for cd integration. Add to your .zshrc/.bashrc:

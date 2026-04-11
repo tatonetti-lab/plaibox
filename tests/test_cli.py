@@ -457,6 +457,51 @@ def test_full_lifecycle(tmp_path):
     assert not archived_path.exists()
 
 
+def test_session_save_and_show(tmp_path):
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    for space in ("sandbox", "projects", "archive"):
+        (root / space).mkdir()
+
+    proj = _make_project(root, "sandbox", "2026-04-10_my-proj", {
+        "name": "my-proj", "description": "My project",
+        "status": "sandbox", "created": "2026-04-10", "tags": [], "tech": [],
+    })
+
+    runner = CliRunner()
+
+    # Save a session
+    result = runner.invoke(cli, ["session", "--save", "claude --resume abc123", "--dir", str(proj)])
+    assert result.exit_code == 0
+    assert "Session saved" in result.output
+
+    # Show the session
+    result = runner.invoke(cli, ["session", "--dir", str(proj)])
+    assert result.exit_code == 0
+    assert "claude --resume abc123" in result.output
+
+    # Verify it's in the yaml
+    meta = yaml.safe_load((proj / ".plaibox.yaml").read_text())
+    assert meta["session"] == "claude --resume abc123"
+
+
+def test_session_no_session(tmp_path):
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    for space in ("sandbox", "projects", "archive"):
+        (root / space).mkdir()
+
+    proj = _make_project(root, "sandbox", "2026-04-10_empty", {
+        "name": "empty", "description": "No session",
+        "status": "sandbox", "created": "2026-04-10", "tags": [], "tech": [],
+    })
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["session", "--dir", str(proj)])
+    assert result.exit_code == 0
+    assert "No session saved" in result.output
+
+
 def test_open_finds_by_id(tmp_path):
     root = tmp_path / "plaibox"
     root.mkdir()
