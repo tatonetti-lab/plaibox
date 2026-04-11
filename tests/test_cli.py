@@ -94,6 +94,7 @@ def test_ls_shows_all_projects(tmp_path):
     assert result.exit_code == 0
     assert "experiment" in result.output
     assert "real-app" in result.output
+    assert "plaibox open" in result.output  # footer reminder
 
 
 def test_ls_filters_by_space(tmp_path):
@@ -454,6 +455,34 @@ def test_full_lifecycle(tmp_path):
     )
     assert result.exit_code == 0
     assert not archived_path.exists()
+
+
+def test_open_finds_by_id(tmp_path):
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    for space in ("sandbox", "projects", "archive"):
+        (root / space).mkdir()
+
+    proj = _make_project(root, "projects", "my-app", {
+        "name": "my-app", "description": "My application",
+        "status": "project", "created": "2026-04-01", "tags": [], "tech": [],
+    })
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.dump({"root": str(root), "stale_days": 30}))
+
+    # First get the ID from ls output
+    runner = CliRunner()
+    ls_result = runner.invoke(cli, ["ls", "--config", str(config_path)])
+    # Extract the 6-char ID from the output (first non-space token on the data line)
+    for line in ls_result.output.splitlines():
+        if "my-app" in line and "ID" not in line:
+            proj_id = line.strip().split()[0]
+            break
+
+    result = runner.invoke(cli, ["open", proj_id, "--config", str(config_path)])
+    assert result.exit_code == 0
+    assert str(proj) in result.output
 
 
 def test_init_shell_outputs_function():

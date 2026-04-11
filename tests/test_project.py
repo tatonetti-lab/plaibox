@@ -2,7 +2,7 @@ from pathlib import Path
 from datetime import date
 import yaml
 
-from plaibox.project import slugify, make_sandbox_dirname, detect_tech, discover_projects
+from plaibox.project import slugify, make_sandbox_dirname, detect_tech, discover_projects, project_id
 
 
 def test_slugify_basic():
@@ -57,6 +57,8 @@ def test_discover_projects(tmp_plaibox_root):
     assert projects[0]["meta"]["name"] == "test-project"
     assert projects[0]["space"] == "sandbox"
     assert projects[0]["path"] == proj
+    assert "id" in projects[0]
+    assert len(projects[0]["id"]) == 6
 
 
 def test_discover_projects_multiple_spaces(tmp_plaibox_root):

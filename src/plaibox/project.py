@@ -1,3 +1,4 @@
+import hashlib
 import re
 from datetime import date
 from pathlib import Path
@@ -44,18 +45,34 @@ def detect_tech(project_dir: Path) -> list[str]:
     return sorted(found)
 
 
+def project_id(project_path: Path) -> str:
+    """Generate a short stable ID from the project path."""
+    h = hashlib.sha1(str(project_path).encode()).hexdigest()
+    return h[:6]
+
+
+def ensure_spaces(root: Path) -> None:
+    """Ensure sandbox/projects/archive directories exist."""
+    for space in ("sandbox", "projects", "archive"):
+        (root / space).mkdir(parents=True, exist_ok=True)
+
+
 def discover_projects(root: Path) -> list[dict]:
     """Find all plaibox-managed projects across sandbox/projects/archive."""
+    ensure_spaces(root)
     results = []
     for space in ("sandbox", "projects", "archive"):
         space_dir = root / space
-        if not space_dir.exists():
-            continue
         for child in sorted(space_dir.iterdir()):
             if not child.is_dir():
                 continue
             meta = read_metadata(child)
             if meta is None:
                 continue
-            results.append({"path": child, "space": space, "meta": meta})
+            results.append({
+                "path": child,
+                "space": space,
+                "meta": meta,
+                "id": project_id(child),
+            })
     return results

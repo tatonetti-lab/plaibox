@@ -9,7 +9,7 @@ import yaml
 
 from plaibox.config import load_config, DEFAULT_CONFIG_PATH
 from plaibox.metadata import write_metadata, read_metadata
-from plaibox.project import slugify, make_sandbox_dirname, discover_projects, detect_tech
+from plaibox.project import slugify, make_sandbox_dirname, discover_projects, detect_tech, ensure_spaces
 from plaibox.shell import shell_init_script
 
 
@@ -26,6 +26,7 @@ def new(description: str | None, config_path: str | None):
     """Create a new sandbox project."""
     cfg = load_config(Path(config_path) if config_path else DEFAULT_CONFIG_PATH)
     root = Path(cfg["root"]).expanduser()
+    ensure_spaces(root)
 
     if not description:
         description = click.prompt("Project description")
@@ -74,10 +75,27 @@ def ls_cmd(space: str | None, stale: bool, config_path: str | None):
         click.echo("No projects found.")
         return
 
+    click.echo(f"  {'ID':6s}  {'STATUS':8s}  {'CREATED':10s}  {'MODIFIED':10s}  {'NAME':25s}  DESCRIPTION")
+    click.echo(f"  {'─' * 6}  {'─' * 8}  {'─' * 10}  {'─' * 10}  {'─' * 25}  {'─' * 20}")
+
     for p in projects:
+        meta = p["meta"]
         tech = detect_tech(p["path"])
-        tech_str = f" [{', '.join(tech)}]" if tech else ""
-        click.echo(f"  {p['meta']['status']:8s}  {p['meta']['name']:30s}  {p['meta']['description']}{tech_str}")
+        tech_str = ", ".join(tech) if tech else "-"
+        tags_str = ", ".join(meta.get("tags", [])) if meta.get("tags") else ""
+        modified = _last_modified(p["path"])
+
+        click.echo(
+            f"  {p['id']}  {meta['status']:8s}  {meta['created']}  "
+            f"{modified}  {meta['name']:25s}  {meta['description']}"
+        )
+        detail_parts = [f"tech: {tech_str}"]
+        if tags_str:
+            detail_parts.append(f"tags: {tags_str}")
+        click.echo(f"        {' | '.join(detail_parts)}")
+
+    click.echo("")
+    click.echo("Open a project: plaibox open <name-or-id>")
 
 
 def _last_modified(path: Path) -> date:
@@ -184,6 +202,12 @@ def open_cmd(query: str, config_path: str | None):
 
     projects = discover_projects(root)
     query_lower = query.lower()
+
+    # Check for exact ID match first
+    for p in projects:
+        if p["id"] == query_lower:
+            click.echo(str(p["path"]))
+            return
 
     matches = []
     for p in projects:
