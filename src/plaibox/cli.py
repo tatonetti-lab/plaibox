@@ -134,9 +134,34 @@ def promote(config_path: str | None, project_dir: str):
 
     meta["status"] = "project"
     meta["name"] = new_name
+    meta["remote"] = None
     write_metadata(new_path, meta)
 
     click.echo(f"Promoted to {new_path}")
+
+    # Offer to create a GitHub repo
+    if click.confirm("Create a GitHub repo?", default=True):
+        visibility = click.prompt(
+            "Visibility",
+            type=click.Choice(["private", "public"]),
+            default="private",
+        )
+        result = subprocess.run(
+            ["gh", "repo", "create", new_name, f"--{visibility}", "--source", str(new_path), "--push"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            # Extract the repo URL from gh output
+            repo_url = result.stdout.strip()
+            meta["remote"] = repo_url
+            write_metadata(new_path, meta)
+            click.echo(f"GitHub repo created: {repo_url}")
+        else:
+            click.echo(f"Failed to create repo: {result.stderr.strip()}", err=True)
+            click.echo("You can create one later with: gh repo create")
+    else:
+        click.echo("Skipped. You can add a remote later with: gh repo create")
 
 
 @cli.command()

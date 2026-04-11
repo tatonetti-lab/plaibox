@@ -170,7 +170,7 @@ def test_promote_moves_to_projects(tmp_path):
     runner = CliRunner()
     result = runner.invoke(
         cli, ["promote", "--config", str(config_path), "--dir", str(proj)],
-        input="cool-app\n"
+        input="cool-app\nn\n"  # name, then decline GitHub repo
     )
 
     assert result.exit_code == 0
@@ -184,6 +184,7 @@ def test_promote_moves_to_projects(tmp_path):
     meta = yaml.safe_load((new_dir / ".plaibox.yaml").read_text())
     assert meta["status"] == "project"
     assert meta["name"] == "cool-app"
+    assert "You can add a remote later" in result.output
 
 
 def test_promote_rejects_non_sandbox(tmp_path):
@@ -427,10 +428,10 @@ def test_full_lifecycle(tmp_path):
     assert "lifecycle-test" in result.output
     assert "sandbox" in result.output
 
-    # Promote
+    # Promote (decline GitHub repo)
     result = runner.invoke(
         cli, ["promote", "--dir", project_path, *cfg_flag],
-        input="my-real-app\n"
+        input="my-real-app\nn\n"
     )
     assert result.exit_code == 0
     promoted_path = root / "projects" / "my-real-app"
