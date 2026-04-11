@@ -21,8 +21,9 @@ def cli():
 
 @cli.command()
 @click.argument("description", required=False)
+@click.option("--python", "create_venv", is_flag=True, help="Create a Python virtual environment (.venv).")
 @click.option("--config", "config_path", default=None, help="Path to config file.")
-def new(description: str | None, config_path: str | None):
+def new(description: str | None, create_venv: bool, config_path: str | None):
     """Create a new sandbox project."""
     cfg = load_config(Path(config_path) if config_path else DEFAULT_CONFIG_PATH)
     root = Path(cfg["root"]).expanduser()
@@ -44,9 +45,20 @@ def new(description: str | None, config_path: str | None):
         "tags": [],
         "tech": [],
     }
+
+    if create_venv:
+        meta["tech"] = ["python"]
+
     write_metadata(project_dir, meta)
 
     subprocess.run(["git", "init"], cwd=project_dir, capture_output=True)
+
+    if create_venv:
+        subprocess.run(
+            ["python3", "-m", "venv", ".venv"],
+            cwd=project_dir,
+            capture_output=True,
+        )
 
     click.echo(str(project_dir))
 
@@ -331,6 +343,102 @@ def session(resume_cmd: str | None, project_dir: str):
             click.echo(f"Resume session: {saved}")
         else:
             click.echo("No session saved for this project.")
+
+
+@cli.command("import")
+@click.argument("path", default=".", type=click.Path(exists=False))
+@click.option("--project", "as_project", is_flag=True, help="Import directly as a project (skip sandbox).")
+@click.option("--config", "config_path", default=None, help="Path to config file.")
+def import_cmd(path: str, as_project: bool, config_path: str | None):
+    """Import an existing project directory into plaibox."""
+    cfg = load_config(Path(config_path) if config_path else DEFAULT_CONFIG_PATH)
+    root = Path(cfg["root"]).expanduser()
+    ensure_spaces(root)
+
+    source = Path(path).resolve()
+
+    if not source.exists():
+        click.echo(f"Error: {source} does not exist.", err=True)
+        raise SystemExit(1)
+
+    if not source.is_dir():
+        click.echo(f"Error: {source} is not a directory.", err=True)
+        raise SystemExit(1)
+
+    # Refuse to import something already inside plaibox root
+    try:
+        source.relative_to(root.resolve())
+        click.echo("Error: already inside plaibox root. Use promote/archive instead.", err=True)
+        raise SystemExit(1)
+    except ValueError:
+        pass  # Not inside root — good
+
+    # Check for existing metadata
+    existing_meta = read_metadata(source)
+
+    if existing_meta:
+        description = existing_meta.get("description", source.name)
+    else:
+        description = click.prompt("Description", default=source.name)
+
+    # Determine destination space
+    if as_project:
+        space = "p"
+    else:
+        if existing_meta and existing_meta.get("status") == "project":
+            space = "p"
+        else:
+            space = click.prompt("Import as: [s]andbox or [p]roject", type=click.Choice(["s", "p"]))
+
+    today = date.today()
+
+    if space == "s":
+        dirname = make_sandbox_dirname(description, today)
+        dest = root / "sandbox" / dirname
+        status = "sandbox"
+        name = slugify(description)
+    else:
+        name = click.prompt("Project name", default=slugify(description))
+        dest = root / "projects" / name
+        status = "project"
+
+    if dest.exists():
+        click.echo(f"Error: {dest} already exists.", err=True)
+        raise SystemExit(1)
+
+    shutil.move(str(source), str(dest))
+
+    # Write metadata (preserve existing if present)
+    if existing_meta:
+        existing_meta["status"] = status
+        if space == "p":
+            existing_meta["name"] = name
+        write_metadata(dest, existing_meta)
+    else:
+        meta = {
+            "name": name,
+            "description": description,
+            "status": status,
+            "created": today.isoformat(),
+            "tags": [],
+            "tech": detect_tech(dest),
+        }
+        write_metadata(dest, meta)
+
+    # Init git if not already a repo
+    if not (dest / ".git").exists():
+        subprocess.run(["git", "init"], cwd=dest, capture_output=True)
+
+    # Offer to create venv if Python project without one
+    if not (dest / ".venv").exists() and detect_tech(dest) and "python" in detect_tech(dest):
+        if click.confirm("Python project detected. Create a .venv?", default=True):
+            subprocess.run(
+                ["python3", "-m", "venv", ".venv"],
+                cwd=dest,
+                capture_output=True,
+            )
+
+    click.echo(str(dest))
 
 
 @cli.command("init-shell")

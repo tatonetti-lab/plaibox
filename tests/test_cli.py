@@ -536,3 +536,338 @@ def test_init_shell_outputs_function():
     result = runner.invoke(cli, ["init-shell"])
     assert result.exit_code == 0
     assert "plaibox()" in result.output or "function plaibox" in result.output
+
+
+# --- import command tests ---
+
+
+def test_import_to_sandbox(tmp_path):
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    for space in ("sandbox", "projects", "archive"):
+        (root / space).mkdir()
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.dump({"root": str(root), "stale_days": 30}))
+
+    # Create a project outside of plaibox
+    external = tmp_path / "my-external-project"
+    external.mkdir()
+    (external / "main.py").write_text("print('hello')")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["import", str(external), "--config", str(config_path)],
+        input="A cool external project\ns\n",  # description, then sandbox
+    )
+
+    assert result.exit_code == 0
+    assert not external.exists()  # original moved
+
+    # Should exist in sandbox with date prefix
+    sandbox_dirs = list((root / "sandbox").iterdir())
+    assert len(sandbox_dirs) == 1
+    new_dir = sandbox_dirs[0]
+    assert "a-cool-external-project" in new_dir.name
+
+    # Should have metadata
+    meta = yaml.safe_load((new_dir / ".plaibox.yaml").read_text())
+    assert meta["status"] == "sandbox"
+    assert meta["description"] == "A cool external project"
+
+    # Should have preserved original files
+    assert (new_dir / "main.py").exists()
+
+    # Should print the new path
+    assert str(new_dir) in result.output
+
+
+def test_import_to_project(tmp_path):
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    for space in ("sandbox", "projects", "archive"):
+        (root / space).mkdir()
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.dump({"root": str(root), "stale_days": 30}))
+
+    external = tmp_path / "my-app"
+    external.mkdir()
+    (external / "index.js").write_text("console.log('hi')")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["import", str(external), "--config", str(config_path)],
+        input="My application\np\nmy-cool-app\n",  # description, project, name
+    )
+
+    assert result.exit_code == 0
+    assert not external.exists()
+
+    new_dir = root / "projects" / "my-cool-app"
+    assert new_dir.exists()
+
+    meta = yaml.safe_load((new_dir / ".plaibox.yaml").read_text())
+    assert meta["status"] == "project"
+    assert meta["name"] == "my-cool-app"
+
+
+def test_import_with_project_flag(tmp_path):
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    for space in ("sandbox", "projects", "archive"):
+        (root / space).mkdir()
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.dump({"root": str(root), "stale_days": 30}))
+
+    external = tmp_path / "my-app"
+    external.mkdir()
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["import", str(external), "--project", "--config", str(config_path)],
+        input="My application\nmy-app\n",  # description, name
+    )
+
+    assert result.exit_code == 0
+    assert (root / "projects" / "my-app").exists()
+
+
+def test_import_preserves_existing_metadata(tmp_path):
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    for space in ("sandbox", "projects", "archive"):
+        (root / space).mkdir()
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.dump({"root": str(root), "stale_days": 30}))
+
+    # Create external project with existing .plaibox.yaml
+    external = tmp_path / "already-tagged"
+    external.mkdir()
+    existing_meta = {
+        "name": "already-tagged",
+        "description": "Was already tracked",
+        "status": "sandbox",
+        "created": "2026-01-15",
+        "tags": ["important"],
+        "tech": ["python"],
+    }
+    (external / ".plaibox.yaml").write_text(yaml.dump(existing_meta))
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["import", str(external), "--config", str(config_path)],
+        input="s\n",  # sandbox (no description prompt since metadata exists)
+    )
+
+    assert result.exit_code == 0
+    sandbox_dirs = list((root / "sandbox").iterdir())
+    assert len(sandbox_dirs) == 1
+
+    meta = yaml.safe_load((sandbox_dirs[0] / ".plaibox.yaml").read_text())
+    assert meta["tags"] == ["important"]
+    assert meta["created"] == "2026-01-15"
+
+
+def test_import_rejects_path_inside_plaibox(tmp_path):
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    for space in ("sandbox", "projects", "archive"):
+        (root / space).mkdir()
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.dump({"root": str(root), "stale_days": 30}))
+
+    # Try to import something already inside plaibox root
+    inside = root / "sandbox" / "2026-04-10_already-here"
+    inside.mkdir()
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["import", str(inside), "--config", str(config_path)],
+    )
+
+    assert result.exit_code != 0 or "already inside" in result.output.lower()
+
+
+def test_import_rejects_nonexistent_path(tmp_path):
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    for space in ("sandbox", "projects", "archive"):
+        (root / space).mkdir()
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.dump({"root": str(root), "stale_days": 30}))
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["import", str(tmp_path / "nope"), "--config", str(config_path)],
+    )
+
+    assert result.exit_code != 0 or "does not exist" in result.output.lower()
+
+
+def test_import_inits_git_if_missing(tmp_path):
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    for space in ("sandbox", "projects", "archive"):
+        (root / space).mkdir()
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.dump({"root": str(root), "stale_days": 30}))
+
+    external = tmp_path / "no-git"
+    external.mkdir()
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["import", str(external), "--config", str(config_path)],
+        input="A project without git\ns\n",
+    )
+
+    assert result.exit_code == 0
+    sandbox_dirs = list((root / "sandbox").iterdir())
+    new_dir = sandbox_dirs[0]
+    assert (new_dir / ".git").exists()
+
+
+def test_new_with_python_flag_creates_venv(tmp_path):
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    for space in ("sandbox", "projects", "archive"):
+        (root / space).mkdir()
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.dump({"root": str(root), "stale_days": 30}))
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["new", "python experiment", "--python", "--config", str(config_path)])
+
+    assert result.exit_code == 0
+    project_path = Path(result.output.strip())
+    assert (project_path / ".venv").exists()
+    assert (project_path / ".venv" / "bin" / "activate").exists()
+
+    meta = yaml.safe_load((project_path / ".plaibox.yaml").read_text())
+    assert "python" in meta["tech"]
+
+
+def test_new_without_python_flag_no_venv(tmp_path):
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    for space in ("sandbox", "projects", "archive"):
+        (root / space).mkdir()
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.dump({"root": str(root), "stale_days": 30}))
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["new", "plain project", "--config", str(config_path)])
+
+    assert result.exit_code == 0
+    project_path = Path(result.output.strip())
+    assert not (project_path / ".venv").exists()
+
+
+def test_import_offers_venv_for_python_project(tmp_path):
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    for space in ("sandbox", "projects", "archive"):
+        (root / space).mkdir()
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.dump({"root": str(root), "stale_days": 30}))
+
+    external = tmp_path / "py-project"
+    external.mkdir()
+    (external / "pyproject.toml").write_text("[project]\nname = 'test'\n")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["import", str(external), "--config", str(config_path)],
+        input="A python project\ns\ny\n",  # description, sandbox, yes to venv
+    )
+
+    assert result.exit_code == 0
+    sandbox_dirs = list((root / "sandbox").iterdir())
+    new_dir = sandbox_dirs[0]
+    assert (new_dir / ".venv").exists()
+
+
+def test_import_skip_venv_for_python_project(tmp_path):
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    for space in ("sandbox", "projects", "archive"):
+        (root / space).mkdir()
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.dump({"root": str(root), "stale_days": 30}))
+
+    external = tmp_path / "py-project"
+    external.mkdir()
+    (external / "requirements.txt").write_text("flask\n")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["import", str(external), "--config", str(config_path)],
+        input="A python project\ns\nn\n",  # description, sandbox, no to venv
+    )
+
+    assert result.exit_code == 0
+    sandbox_dirs = list((root / "sandbox").iterdir())
+    new_dir = sandbox_dirs[0]
+    assert not (new_dir / ".venv").exists()
+
+
+def test_import_preserves_existing_git(tmp_path):
+    import subprocess
+
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    for space in ("sandbox", "projects", "archive"):
+        (root / space).mkdir()
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.dump({"root": str(root), "stale_days": 30}))
+
+    external = tmp_path / "has-git"
+    external.mkdir()
+    subprocess.run(["git", "init"], cwd=external, capture_output=True)
+    (external / "file.txt").write_text("hello")
+    subprocess.run(["git", "add", "."], cwd=external, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "init", "--allow-empty"],
+        cwd=external,
+        capture_output=True,
+        env={**__import__("os").environ, "GIT_AUTHOR_NAME": "test", "GIT_AUTHOR_EMAIL": "test@test.com",
+             "GIT_COMMITTER_NAME": "test", "GIT_COMMITTER_EMAIL": "test@test.com"},
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["import", str(external), "--config", str(config_path)],
+        input="Has git already\ns\n",
+    )
+
+    assert result.exit_code == 0
+    sandbox_dirs = list((root / "sandbox").iterdir())
+    new_dir = sandbox_dirs[0]
+    assert (new_dir / ".git").exists()
+
+    # Verify git history was preserved
+    log = subprocess.run(
+        ["git", "log", "--oneline"], cwd=new_dir, capture_output=True, text=True
+    )
+    assert "init" in log.stdout

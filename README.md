@@ -39,6 +39,9 @@ Then restart your shell or run `source ~/.zshrc`.
 plaibox new "dashboard for lab results"
 # Creates ~/plaibox/sandbox/2026-04-10_dashboard-for-lab-results/
 # Initializes git, writes metadata, and cd's you in
+
+plaibox new "ml experiment" --python
+# Same as above, but also creates a .venv and auto-activates it
 ```
 
 ### List your projects
@@ -92,11 +95,31 @@ plaibox open my-project
 # Resume session: claude --resume abc123
 ```
 
+### Import an existing project
+
+```bash
+plaibox import ~/Projects/old-thing
+# Prompts for description, sandbox vs project, moves it in
+# Auto-detects Python projects and offers to create a .venv
+
+plaibox import ~/Projects/old-thing --project
+# Import directly as a project (skip sandbox)
+```
+
 ### Return to previous directory
 
 ```bash
 plaibox exit              # cd back to where you were before open/new
 ```
+
+### Python virtual environments
+
+Plaibox manages `.venv` automatically when using shell integration:
+
+- `plaibox new --python` creates a `.venv` in the new project
+- `plaibox open` / `plaibox new` / `plaibox import` auto-activate `.venv` if one exists
+- `plaibox exit` deactivates the venv
+- `plaibox claude` / `plaibox codex` activate the venv before launching, so AI tools install packages in the right place
 
 ## Project structure
 

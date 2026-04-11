@@ -42,3 +42,19 @@ def test_shell_init_script_saves_session():
 def test_shell_init_script_shows_session_on_open():
     script = shell_init_script()
     assert "Resume session:" in script
+
+
+def test_shell_init_script_activates_venv():
+    script = shell_init_script()
+    assert ".venv/bin/activate" in script
+
+
+def test_shell_init_script_deactivates_venv_on_exit():
+    script = shell_init_script()
+    assert "deactivate" in script
+
+
+def test_shell_init_script_activates_venv_for_claude():
+    script = shell_init_script()
+    # The claude/codex branch should activate venv before launching
+    assert "VIRTUAL_ENV" in script
