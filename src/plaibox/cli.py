@@ -10,6 +10,7 @@ import yaml
 from plaibox.config import load_config, DEFAULT_CONFIG_PATH
 from plaibox.metadata import write_metadata, read_metadata
 from plaibox.project import slugify, make_sandbox_dirname, discover_projects, detect_tech
+from plaibox.shell import shell_init_script
 
 
 @click.group()
@@ -258,3 +259,12 @@ def tidy(config_path: str | None):
             click.echo(f"  Archived.\n")
         else:
             click.echo(f"  Skipped.\n")
+
+
+@cli.command("init-shell")
+def init_shell():
+    """Print shell function for cd integration. Add to your .zshrc/.bashrc:
+
+    eval "$(plaibox init-shell)"
+    """
+    click.echo(shell_init_script())

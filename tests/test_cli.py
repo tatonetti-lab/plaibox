@@ -400,3 +400,64 @@ def test_tidy_archive_action(tmp_path):
     assert result.exit_code == 0
     assert not old_proj.exists()
     assert (root / "archive" / "2026-03-01_stale-thing").exists()
+
+
+def test_full_lifecycle(tmp_path):
+    """End-to-end: new -> ls -> promote -> archive -> delete."""
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    for space in ("sandbox", "projects", "archive"):
+        (root / space).mkdir()
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.dump({"root": str(root), "stale_days": 30}))
+
+    runner = CliRunner()
+    cfg_flag = ["--config", str(config_path)]
+
+    # Create
+    result = runner.invoke(cli, ["new", "lifecycle test", *cfg_flag])
+    assert result.exit_code == 0
+    project_path = result.output.strip()
+    assert Path(project_path).exists()
+
+    # List — should appear as sandbox
+    result = runner.invoke(cli, ["ls", *cfg_flag])
+    assert "lifecycle-test" in result.output
+    assert "sandbox" in result.output
+
+    # Promote
+    result = runner.invoke(
+        cli, ["promote", "--dir", project_path, *cfg_flag],
+        input="my-real-app\n"
+    )
+    assert result.exit_code == 0
+    promoted_path = root / "projects" / "my-real-app"
+    assert promoted_path.exists()
+
+    # List — should appear as project
+    result = runner.invoke(cli, ["ls", *cfg_flag])
+    assert "my-real-app" in result.output
+    assert "project" in result.output
+
+    # Archive
+    result = runner.invoke(
+        cli, ["archive", "--dir", str(promoted_path), *cfg_flag]
+    )
+    assert result.exit_code == 0
+
+    # Delete
+    archived_path = root / "archive" / "my-real-app"
+    result = runner.invoke(
+        cli, ["delete", "--dir", str(archived_path), *cfg_flag],
+        input="y\n"
+    )
+    assert result.exit_code == 0
+    assert not archived_path.exists()
+
+
+def test_init_shell_outputs_function():
+    runner = CliRunner()
+    result = runner.invoke(cli, ["init-shell"])
+    assert result.exit_code == 0
+    assert "plaibox()" in result.output or "function plaibox" in result.output
