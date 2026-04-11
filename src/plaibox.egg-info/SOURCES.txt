@@ -1,0 +1,9 @@
+pyproject.toml
+setup.py
+src/plaibox/__init__.py
+src/plaibox.egg-info/PKG-INFO
+src/plaibox.egg-info/SOURCES.txt
+src/plaibox.egg-info/dependency_links.txt
+src/plaibox.egg-info/entry_points.txt
+src/plaibox.egg-info/requires.txt
+src/plaibox.egg-info/top_level.txt
