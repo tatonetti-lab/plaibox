@@ -171,3 +171,41 @@ def delete(config_path: str | None, project_dir: str):
 
     shutil.rmtree(project_path)
     click.echo(f"Deleted {meta['name']}.")
+
+
+@cli.command("open")
+@click.argument("query")
+@click.option("--config", "config_path", default=None, help="Path to config file.")
+def open_cmd(query: str, config_path: str | None):
+    """Find a project by name or description and print its path."""
+    cfg = load_config(Path(config_path) if config_path else DEFAULT_CONFIG_PATH)
+    root = Path(cfg["root"]).expanduser()
+
+    projects = discover_projects(root)
+    query_lower = query.lower()
+
+    matches = []
+    for p in projects:
+        name = p["meta"].get("name", "").lower()
+        desc = p["meta"].get("description", "").lower()
+        if query_lower in name or query_lower in desc:
+            matches.append(p)
+
+    if not matches:
+        click.echo(f"No project matching '{query}'.")
+        raise SystemExit(1)
+
+    if len(matches) == 1:
+        click.echo(str(matches[0]["path"]))
+        return
+
+    click.echo(f"Multiple matches for '{query}':")
+    for i, m in enumerate(matches, 1):
+        click.echo(f"  {i}. {m['meta']['name']} — {m['meta']['description']}")
+
+    choice = click.prompt("Which one?", type=int)
+    if 1 <= choice <= len(matches):
+        click.echo(str(matches[choice - 1]["path"]))
+    else:
+        click.echo("Invalid choice.")
+        raise SystemExit(1)

@@ -280,3 +280,60 @@ def test_delete_rejects_non_archived(tmp_path):
     )
 
     assert result.exit_code != 0 or "only delete archived" in result.output.lower()
+
+
+def test_open_finds_by_name(tmp_path):
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    for space in ("sandbox", "projects", "archive"):
+        (root / space).mkdir()
+
+    proj = _make_project(root, "projects", "lab-dashboard", {
+        "name": "lab-dashboard", "description": "Dashboard for lab results",
+        "status": "project", "created": "2026-04-01", "tags": [], "tech": [],
+    })
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.dump({"root": str(root), "stale_days": 30}))
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["open", "lab", "--config", str(config_path)])
+
+    assert result.exit_code == 0
+    assert str(proj) in result.output
+
+
+def test_open_finds_by_description(tmp_path):
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    for space in ("sandbox", "projects", "archive"):
+        (root / space).mkdir()
+
+    proj = _make_project(root, "sandbox", "2026-04-10_xyz", {
+        "name": "xyz", "description": "Tracking patient outcomes",
+        "status": "sandbox", "created": "2026-04-10", "tags": [], "tech": [],
+    })
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.dump({"root": str(root), "stale_days": 30}))
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["open", "patient", "--config", str(config_path)])
+
+    assert result.exit_code == 0
+    assert str(proj) in result.output
+
+
+def test_open_no_match(tmp_path):
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    for space in ("sandbox", "projects", "archive"):
+        (root / space).mkdir()
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.dump({"root": str(root), "stale_days": 30}))
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["open", "nonexistent", "--config", str(config_path)])
+
+    assert "no project" in result.output.lower() or result.exit_code != 0
