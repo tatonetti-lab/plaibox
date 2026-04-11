@@ -118,3 +118,56 @@ def promote(config_path: str | None, project_dir: str):
     write_metadata(new_path, meta)
 
     click.echo(f"Promoted to {new_path}")
+
+
+@cli.command()
+@click.option("--config", "config_path", default=None, help="Path to config file.")
+@click.option("--dir", "project_dir", default=".", help="Project directory to archive.")
+def archive(config_path: str | None, project_dir: str):
+    """Archive a project."""
+    cfg = load_config(Path(config_path) if config_path else DEFAULT_CONFIG_PATH)
+    root = Path(cfg["root"]).expanduser()
+    project_path = Path(project_dir).resolve()
+
+    meta = read_metadata(project_path)
+    if meta is None:
+        click.echo("Error: not a plaibox project (no .plaibox.yaml found).", err=True)
+        raise SystemExit(1)
+
+    new_path = root / "archive" / project_path.name
+
+    if new_path.exists():
+        click.echo(f"Error: {new_path} already exists in archive.", err=True)
+        raise SystemExit(1)
+
+    shutil.move(str(project_path), str(new_path))
+
+    meta["status"] = "archived"
+    write_metadata(new_path, meta)
+
+    click.echo(f"Archived to {new_path}")
+
+
+@cli.command()
+@click.option("--config", "config_path", default=None, help="Path to config file.")
+@click.option("--dir", "project_dir", default=".", help="Project directory to delete.")
+def delete(config_path: str | None, project_dir: str):
+    """Permanently delete an archived project."""
+    cfg = load_config(Path(config_path) if config_path else DEFAULT_CONFIG_PATH)
+    project_path = Path(project_dir).resolve()
+
+    meta = read_metadata(project_path)
+    if meta is None:
+        click.echo("Error: not a plaibox project (no .plaibox.yaml found).", err=True)
+        raise SystemExit(1)
+
+    if meta["status"] != "archived":
+        click.echo("Error: can only delete archived projects. Archive it first.", err=True)
+        raise SystemExit(1)
+
+    if not click.confirm(f"Permanently delete '{meta['name']}'?"):
+        click.echo("Cancelled.")
+        return
+
+    shutil.rmtree(project_path)
+    click.echo(f"Deleted {meta['name']}.")

@@ -205,3 +205,78 @@ def test_promote_rejects_non_sandbox(tmp_path):
     )
 
     assert result.exit_code != 0 or "only promote sandbox" in result.output.lower()
+
+
+def test_archive_moves_to_archive(tmp_path):
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    for space in ("sandbox", "projects", "archive"):
+        (root / space).mkdir()
+
+    proj = _make_project(root, "sandbox", "2026-04-10_throwaway", {
+        "name": "throwaway", "description": "A throwaway",
+        "status": "sandbox", "created": "2026-04-10", "tags": [], "tech": [],
+    })
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.dump({"root": str(root), "stale_days": 30}))
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli, ["archive", "--config", str(config_path), "--dir", str(proj)]
+    )
+
+    assert result.exit_code == 0
+    assert not proj.exists()
+
+    archived = list((root / "archive").iterdir())
+    assert len(archived) == 1
+
+    meta = yaml.safe_load((archived[0] / ".plaibox.yaml").read_text())
+    assert meta["status"] == "archived"
+
+
+def test_delete_removes_archived_project(tmp_path):
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    for space in ("sandbox", "projects", "archive"):
+        (root / space).mkdir()
+
+    proj = _make_project(root, "archive", "2026-04-10_old-stuff", {
+        "name": "old-stuff", "description": "Old stuff",
+        "status": "archived", "created": "2026-04-10", "tags": [], "tech": [],
+    })
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.dump({"root": str(root), "stale_days": 30}))
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli, ["delete", "--config", str(config_path), "--dir", str(proj)],
+        input="y\n"
+    )
+
+    assert result.exit_code == 0
+    assert not proj.exists()
+
+
+def test_delete_rejects_non_archived(tmp_path):
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    for space in ("sandbox", "projects", "archive"):
+        (root / space).mkdir()
+
+    proj = _make_project(root, "sandbox", "2026-04-10_active", {
+        "name": "active", "description": "Still active",
+        "status": "sandbox", "created": "2026-04-10", "tags": [], "tech": [],
+    })
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.dump({"root": str(root), "stale_days": 30}))
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli, ["delete", "--config", str(config_path), "--dir", str(proj)]
+    )
+
+    assert result.exit_code != 0 or "only delete archived" in result.output.lower()
