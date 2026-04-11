@@ -15,3 +15,9 @@ def test_shell_init_script_handles_new():
 def test_shell_init_script_handles_open():
     script = shell_init_script()
     assert "open" in script
+
+
+def test_shell_init_script_handles_exit():
+    script = shell_init_script()
+    assert "exit" in script
+    assert "_PLAIBOX_PREV_DIR" in script

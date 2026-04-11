@@ -9,9 +9,17 @@ plaibox() {
         output=$(command plaibox "$@")
         local exit_code=$?
         if [ $exit_code -eq 0 ] && [ -d "$output" ]; then
+            export _PLAIBOX_PREV_DIR="$PWD"
             cd "$output"
         else
             echo "$output"
+        fi
+    elif [ "$1" = "exit" ]; then
+        if [ -n "$_PLAIBOX_PREV_DIR" ]; then
+            cd "$_PLAIBOX_PREV_DIR"
+            unset _PLAIBOX_PREV_DIR
+        else
+            echo "No previous directory to return to."
         fi
     else
         command plaibox "$@"
