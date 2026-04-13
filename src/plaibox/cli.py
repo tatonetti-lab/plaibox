@@ -578,7 +578,7 @@ def _clone_remote_project(remote_project: dict, cfg: dict, root: Path) -> None:
         raise SystemExit(1)
 
     # Write local metadata
-    write_metadata(dest, {
+    local_meta = {
         "id": remote_project["id"],  # preserve the sync ID
         "name": meta["name"],
         "description": meta["description"],
@@ -587,7 +587,10 @@ def _clone_remote_project(remote_project: dict, cfg: dict, root: Path) -> None:
         "tags": meta.get("tags", []),
         "tech": meta.get("tech", []),
         "remote": remote_url,
-    })
+    }
+    if meta.get("private"):
+        local_meta["private"] = True
+    write_metadata(dest, local_meta)
 
     # Auto-push so the sync repo knows this machine has the project
     if is_sync_enabled(cfg):
@@ -595,9 +598,7 @@ def _clone_remote_project(remote_project: dict, cfg: dict, root: Path) -> None:
         if sync_cfg:
             auto_push(
                 project_id=remote_project["id"],
-                local_meta={"name": meta["name"], "description": meta["description"],
-                            "status": meta["status"], "created": meta["created"],
-                            "tags": meta.get("tags", []), "tech": meta.get("tech", [])},
+                local_meta=local_meta,
                 space=space,
                 remote=remote_url,
                 sandbox_repo=sandbox_repo,
