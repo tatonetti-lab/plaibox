@@ -133,6 +133,26 @@ Plaibox manages `.venv` automatically when using shell integration:
 - `plaibox exit` deactivates the venv
 - `plaibox claude` / `plaibox codex` activate the venv before launching, so AI tools install packages in the right place
 
+### Cross-device sync
+
+Sync your project registry across machines using a private GitHub repo:
+
+```bash
+# Set up sync (creates GitHub repos, one-time)
+plaibox sync init
+
+# After making changes, metadata is auto-pushed
+plaibox new "my experiment"    # auto-syncs to registry
+
+# On your other machine, pull the latest
+plaibox sync pull
+
+# Open a project that only exists on the other machine
+plaibox open my-experiment     # offers to clone it
+```
+
+Sync is opt-in — plaibox works exactly the same without it. Sandbox project code is stored as branches in a shared repo; promoted projects use their own dedicated GitHub repos.
+
 ## Project structure
 
 ```
