@@ -1654,3 +1654,95 @@ def test_new_private_with_sync_skips_sandbox_push(tmp_path, monkeypatch):
     assert meta["private"] is True
     assert meta.get("sandbox_repo") is None
     assert meta.get("sandbox_branch") is None
+
+
+def test_promote_private_asks_for_remote_url(tmp_path, monkeypatch):
+    """Promoting a private project should ask for a remote URL instead of offering gh repo create."""
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    (root / "sandbox").mkdir()
+    (root / "projects").mkdir()
+    (root / "archive").mkdir()
+
+    # Create a private sandbox project
+    project_dir = root / "sandbox" / "2026-04-13_secret-analysis"
+    project_dir.mkdir(parents=True)
+    import subprocess
+    subprocess.run(["git", "init"], cwd=project_dir, capture_output=True)
+
+    meta = {
+        "id": "priv01",
+        "name": "secret-analysis",
+        "description": "secret analysis",
+        "status": "sandbox",
+        "created": "2026-04-13",
+        "private": True,
+        "tags": [],
+        "tech": [],
+    }
+    (project_dir / ".plaibox.yaml").write_text(yaml.dump(meta))
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.dump({"root": str(root), "stale_days": 30}))
+
+    runner = CliRunner()
+    # Provide project name, then press Enter to skip remote URL
+    result = runner.invoke(
+        cli, ["promote", "--dir", str(project_dir), "--config", str(config_path)],
+        input="secret-analysis\n\n",
+    )
+
+    assert result.exit_code == 0
+    assert "This project is private" in result.output
+    assert (root / "projects" / "secret-analysis").exists()
+
+    # Metadata should still be private
+    new_meta = yaml.safe_load((root / "projects" / "secret-analysis" / ".plaibox.yaml").read_text())
+    assert new_meta["private"] is True
+    assert new_meta.get("remote") is None
+
+
+def test_promote_private_with_remote_url(tmp_path, monkeypatch):
+    """Promoting a private project with a remote URL should set the remote."""
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    (root / "sandbox").mkdir()
+    (root / "projects").mkdir()
+    (root / "archive").mkdir()
+
+    project_dir = root / "sandbox" / "2026-04-13_secret-analysis"
+    project_dir.mkdir(parents=True)
+    import subprocess
+    subprocess.run(["git", "init"], cwd=project_dir, capture_output=True)
+
+    meta = {
+        "id": "priv02",
+        "name": "secret-analysis",
+        "description": "secret analysis",
+        "status": "sandbox",
+        "created": "2026-04-13",
+        "private": True,
+        "tags": [],
+        "tech": [],
+    }
+    (project_dir / ".plaibox.yaml").write_text(yaml.dump(meta))
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.dump({"root": str(root), "stale_days": 30}))
+
+    # Create a bare repo to act as the institutional remote
+    remote_bare = tmp_path / "institutional-remote.git"
+    subprocess.run(["git", "init", "--bare", str(remote_bare)], capture_output=True)
+
+    runner = CliRunner()
+    # Provide project name, then the remote URL
+    result = runner.invoke(
+        cli, ["promote", "--dir", str(project_dir), "--config", str(config_path)],
+        input=f"secret-analysis\n{remote_bare}\n",
+    )
+
+    assert result.exit_code == 0
+
+    new_meta = yaml.safe_load((root / "projects" / "secret-analysis" / ".plaibox.yaml").read_text())
+    assert new_meta["private"] is True
+    assert new_meta["remote"] == str(remote_bare)

@@ -249,29 +249,49 @@ def promote(config_path: str | None, project_dir: str):
         except Exception:
             pass
 
-    # Offer to create a GitHub repo
-    if click.confirm("Create a GitHub repo?", default=True):
-        visibility = click.prompt(
-            "Visibility",
-            type=click.Choice(["private", "public"]),
-            default="private",
-        )
-        result = subprocess.run(
-            ["gh", "repo", "create", new_name, f"--{visibility}", "--source", str(new_path), "--push"],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode == 0:
-            # Extract the repo URL from gh output
-            repo_url = result.stdout.strip()
-            meta["remote"] = repo_url
+    # Handle remote setup
+    if meta.get("private"):
+        # Private project — don't offer gh repo create
+        click.echo("This project is private. Enter a remote URL to push code to an approved remote.")
+        remote_url = click.prompt("Remote URL (or press Enter to skip)", default="", show_default=False)
+        if remote_url:
+            subprocess.run(
+                ["git", "remote", "add", "origin", remote_url],
+                cwd=new_path, capture_output=True,
+            )
+            subprocess.run(
+                ["git", "push", "-u", "origin", "HEAD"],
+                cwd=new_path, capture_output=True,
+            )
+            meta["remote"] = remote_url
             write_metadata(new_path, meta)
-            click.echo(f"GitHub repo created: {repo_url}")
+            click.echo(f"Pushed to {remote_url}")
         else:
-            click.echo(f"Failed to create repo: {result.stderr.strip()}", err=True)
-            click.echo("You can create one later with: gh repo create")
+            click.echo("Skipped. You can add a remote later.")
     else:
-        click.echo("Skipped. You can add a remote later with: gh repo create")
+        # Normal project — offer GitHub repo creation
+        if click.confirm("Create a GitHub repo?", default=True):
+            visibility = click.prompt(
+                "Visibility",
+                type=click.Choice(["private", "public"]),
+                default="private",
+            )
+            result = subprocess.run(
+                ["gh", "repo", "create", new_name, f"--{visibility}", "--source", str(new_path), "--push"],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                # Extract the repo URL from gh output
+                repo_url = result.stdout.strip()
+                meta["remote"] = repo_url
+                write_metadata(new_path, meta)
+                click.echo(f"GitHub repo created: {repo_url}")
+            else:
+                click.echo(f"Failed to create repo: {result.stderr.strip()}", err=True)
+                click.echo("You can create one later with: gh repo create")
+        else:
+            click.echo("Skipped. You can add a remote later with: gh repo create")
 
     # Auto-push to sync if enabled
     if is_sync_enabled(cfg):
