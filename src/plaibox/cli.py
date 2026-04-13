@@ -400,6 +400,59 @@ def delete(config_path: str | None, project_dir: str):
     click.echo(f"Deleted {meta['name']}.")
 
 
+@cli.command()
+@click.option("--config", "config_path", default=None, help="Path to config file.")
+@click.option("--dir", "project_dir", default=".", help="Project directory.")
+def unprivate(config_path: str | None, project_dir: str):
+    """Remove private flag from a project, enabling code sync."""
+    cfg = load_config(Path(config_path) if config_path else DEFAULT_CONFIG_PATH)
+    project_path = Path(project_dir).resolve()
+
+    meta = read_metadata(project_path)
+    if meta is None:
+        click.echo("Error: not a plaibox project (no .plaibox.yaml found).", err=True)
+        raise SystemExit(1)
+
+    if not meta.get("private"):
+        click.echo("Error: project is not marked as private.", err=True)
+        raise SystemExit(1)
+
+    # Remove private flag
+    del meta["private"]
+    write_metadata(project_path, meta)
+
+    # Retroactively push to sandbox repo if sync enabled and project is a sandbox
+    if is_sync_enabled(cfg) and meta["status"] == "sandbox":
+        sync_cfg = get_sync_config(cfg)
+        from plaibox.sync import get_active_sandbox_repo
+        sandbox_repo = get_active_sandbox_repo(sync_cfg)
+
+        if sandbox_repo:
+            pid = meta.get("id", "")
+            branch_name = f"{slugify(meta['description'])}-{pid}"
+            push_sandbox_branch(project_path, sandbox_repo, branch_name)
+
+            meta["sandbox_repo"] = sandbox_repo
+            meta["sandbox_branch"] = branch_name
+            write_metadata(project_path, meta)
+
+            click.echo(f"Code pushed to sandbox repo (branch: {branch_name}).")
+
+        # Update sync metadata
+        pid = meta.get("id", "")
+        auto_push(
+            project_id=pid,
+            local_meta=meta,
+            space="sandbox",
+            remote=meta.get("remote"),
+            sandbox_repo=meta.get("sandbox_repo"),
+            sync_config=sync_cfg,
+            config_dir=Path(config_path).parent if config_path else DEFAULT_CONFIG_PATH.parent,
+        )
+
+    click.echo("Project is no longer private.")
+
+
 @cli.command("open")
 @click.argument("query")
 @click.option("--config", "config_path", default=None, help="Path to config file.")

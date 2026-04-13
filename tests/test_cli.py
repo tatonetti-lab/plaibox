@@ -1872,3 +1872,144 @@ def test_open_private_remote_no_code_shows_message(tmp_path):
     assert result.exit_code == 1
     assert "private" in result.output.lower()
     assert "work-macbook" in result.output
+
+
+def test_unprivate_removes_flag(tmp_path):
+    """unprivate should remove private: true from metadata."""
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    (root / "sandbox").mkdir()
+    (root / "projects").mkdir()
+    (root / "archive").mkdir()
+
+    project_dir = root / "sandbox" / "2026-04-13_secret"
+    project_dir.mkdir(parents=True)
+    import subprocess
+    subprocess.run(["git", "init"], cwd=project_dir, capture_output=True)
+
+    meta = {
+        "id": "sec001",
+        "name": "secret",
+        "description": "secret project",
+        "status": "sandbox",
+        "created": "2026-04-13",
+        "private": True,
+        "tags": [],
+        "tech": [],
+    }
+    (project_dir / ".plaibox.yaml").write_text(yaml.dump(meta))
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.dump({"root": str(root), "stale_days": 30}))
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["unprivate", "--dir", str(project_dir), "--config", str(config_path)])
+
+    assert result.exit_code == 0
+
+    new_meta = yaml.safe_load((project_dir / ".plaibox.yaml").read_text())
+    assert new_meta.get("private") is not True
+
+
+def test_unprivate_not_private_shows_error(tmp_path):
+    """unprivate on a non-private project should show an error."""
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    (root / "sandbox").mkdir()
+    (root / "projects").mkdir()
+    (root / "archive").mkdir()
+
+    project_dir = root / "sandbox" / "2026-04-13_public"
+    project_dir.mkdir(parents=True)
+    import subprocess
+    subprocess.run(["git", "init"], cwd=project_dir, capture_output=True)
+
+    meta = {
+        "id": "pub001",
+        "name": "public",
+        "description": "public project",
+        "status": "sandbox",
+        "created": "2026-04-13",
+        "tags": [],
+        "tech": [],
+    }
+    (project_dir / ".plaibox.yaml").write_text(yaml.dump(meta))
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.dump({"root": str(root), "stale_days": 30}))
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["unprivate", "--dir", str(project_dir), "--config", str(config_path)])
+
+    assert result.exit_code == 1
+    assert "not private" in result.output.lower() or "not marked as private" in result.output.lower()
+
+
+def test_unprivate_with_sync_pushes_sandbox_branch(tmp_path):
+    """unprivate with sync enabled should retroactively push code to sandbox repo."""
+    import subprocess
+
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    (root / "sandbox").mkdir()
+    (root / "projects").mkdir()
+    (root / "archive").mkdir()
+
+    # Create a bare repo to act as sandbox
+    sandbox_bare = tmp_path / "sandbox-bare.git"
+    subprocess.run(["git", "init", "--bare", str(sandbox_bare)], capture_output=True)
+
+    # Create a bare repo to act as sync repo
+    sync_bare = tmp_path / "sync-bare.git"
+    subprocess.run(["git", "init", "--bare", str(sync_bare)], capture_output=True)
+
+    project_dir = root / "sandbox" / "2026-04-13_secret"
+    project_dir.mkdir(parents=True)
+    subprocess.run(["git", "init"], cwd=project_dir, capture_output=True)
+
+    meta = {
+        "id": "sec001",
+        "name": "secret",
+        "description": "secret project",
+        "status": "sandbox",
+        "created": "2026-04-13",
+        "private": True,
+        "tags": [],
+        "tech": [],
+    }
+    (project_dir / ".plaibox.yaml").write_text(yaml.dump(meta))
+
+    # Create an initial commit so there's something to push
+    subprocess.run(["git", "add", "."], cwd=project_dir, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=project_dir, capture_output=True)
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.dump({
+        "root": str(root),
+        "stale_days": 30,
+        "sync": {
+            "enabled": True,
+            "repo": str(sync_bare),
+            "sandbox_repos": [str(sandbox_bare)],
+            "sandbox_branch_limit": 50,
+            "machine_name": "test-machine",
+        },
+    }))
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["unprivate", "--dir", str(project_dir), "--config", str(config_path)])
+
+    assert result.exit_code == 0
+
+    # Sandbox repo should now have a branch
+    ls_result = subprocess.run(
+        ["git", "ls-remote", "--heads", str(sandbox_bare)],
+        capture_output=True, text=True,
+    )
+    assert ls_result.stdout.strip() != ""
+
+    # Local metadata should have sandbox_repo and sandbox_branch set
+    new_meta = yaml.safe_load((project_dir / ".plaibox.yaml").read_text())
+    assert new_meta.get("sandbox_repo") == str(sandbox_bare)
+    assert new_meta.get("sandbox_branch") is not None
+    assert new_meta.get("private") is not True
