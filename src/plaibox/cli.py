@@ -649,6 +649,49 @@ def init(config_path: str | None):
     click.echo("Run 'plaibox sync pull' on your other machine to get started.")
 
 
+@sync.command()
+@click.option("--config", "config_path", default=None, help="Path to config file.")
+def pull(config_path: str | None):
+    """Pull latest project registry from the sync repo."""
+    cfg_path = Path(config_path) if config_path else DEFAULT_CONFIG_PATH
+    cfg = load_config(cfg_path)
+
+    sync_cfg = get_sync_config(cfg)
+    if sync_cfg is None:
+        click.echo("Sync not configured. Run 'plaibox sync init' first.", err=True)
+        raise SystemExit(1)
+
+    repo_path = ensure_sync_repo_cloned(sync_cfg, cfg_path.parent)
+    pull_sync_repo(repo_path)
+
+    root = Path(cfg["root"]).expanduser()
+    remote_projects = read_remote_projects(repo_path)
+
+    # Compare with local projects
+    from plaibox.project import project_id
+    local_projects = discover_projects(root)
+    local_ids = {p["id"] for p in local_projects}
+
+    new_remote = [rp for rp in remote_projects if rp["id"] not in local_ids]
+
+    # Write remote registry for ls to pick up
+    registry_path = cfg_path.parent / "remote-registry.yaml"
+    registry = {}
+    for rp in remote_projects:
+        registry[rp["id"]] = rp["meta"]
+    with open(registry_path, "w") as f:
+        yaml.dump(registry, f, default_flow_style=False, sort_keys=False)
+
+    if new_remote:
+        click.echo(f"Found {len(new_remote)} remote-only project(s):")
+        for rp in new_remote:
+            m = rp["meta"]
+            click.echo(f"  {m['name']} — {m['description']} (on {m.get('machine', '?')})")
+        click.echo("\nUse 'plaibox open <name>' to clone a remote project.")
+    else:
+        click.echo("All synced. No new remote projects.")
+
+
 @cli.command("init-shell")
 def init_shell():
     """Print shell function for cd integration. Add to your .zshrc/.bashrc:

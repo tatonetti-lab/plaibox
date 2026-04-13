@@ -653,6 +653,57 @@ def test_sync_init_writes_config(tmp_path, monkeypatch):
     assert updated_cfg["sync"]["enabled"] is True
 
 
+def test_sync_pull_shows_remote_projects(tmp_path, monkeypatch):
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    for space in ("sandbox", "projects", "archive"):
+        (root / space).mkdir()
+
+    config_dir = tmp_path
+    config_path = config_dir / "config.yaml"
+
+    # Set up a bare repo as the sync remote
+    import subprocess as sp
+    bare = tmp_path / "remote-sync.git"
+    bare.mkdir(parents=True)
+    sp.run(["git", "init", "--bare"], cwd=bare, capture_output=True)
+
+    config_path.write_text(yaml.dump({
+        "root": str(root),
+        "stale_days": 30,
+        "sync": {
+            "enabled": True,
+            "repo": str(bare),
+            "sandbox_repos": [],
+            "sandbox_branch_limit": 50,
+            "machine_name": "test-machine",
+        },
+    }))
+
+    # Seed the sync repo with a project from "another machine"
+    from plaibox.sync import ensure_sync_repo_cloned, push_project_meta
+    sync_cfg = yaml.safe_load(config_path.read_text())["sync"]
+    repo_path = ensure_sync_repo_cloned(sync_cfg, config_dir)
+    push_project_meta("remote1", {
+        "name": "remote-project",
+        "description": "From another machine",
+        "status": "project",
+        "created": "2026-04-13",
+        "tags": [], "tech": ["python"],
+        "remote": "git@github.com:user/remote-project.git",
+        "space": "projects",
+        "sandbox_repo": None,
+        "updated": "2026-04-13T15:00:00",
+        "machine": "other-machine",
+    }, repo_path)
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["sync", "pull", "--config", str(config_path)])
+
+    assert result.exit_code == 0
+    assert "remote-project" in result.output or "1 remote" in result.output
+
+
 # --- import command tests ---
 
 
