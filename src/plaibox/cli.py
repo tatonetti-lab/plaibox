@@ -384,6 +384,15 @@ def delete(config_path: str | None, project_dir: str):
     from plaibox.project import project_id
     pid = meta.get("id") or project_id(project_path)
 
+    # Clean up sandbox branch if one exists
+    sandbox_repo = meta.get("sandbox_repo")
+    sandbox_branch = meta.get("sandbox_branch")
+    if sandbox_repo and sandbox_branch:
+        try:
+            delete_sandbox_branch(sandbox_repo, sandbox_branch)
+        except Exception:
+            pass
+
     shutil.rmtree(project_path)
 
     # Remove from sync if enabled
@@ -784,6 +793,38 @@ def import_cmd(path: str, as_project: bool, config_path: str | None):
 
     click.echo(str(dest))
 
+    # Auto-push to sync if enabled
+    if is_sync_enabled(cfg):
+        sync_cfg = get_sync_config(cfg)
+        final_meta = existing_meta if existing_meta else meta
+        pid = final_meta.get("id") or new_id
+        from plaibox.sync import get_active_sandbox_repo
+        sandbox_repo = None
+
+        if not final_meta.get("private") and status == "sandbox":
+            sandbox_repo = get_active_sandbox_repo(sync_cfg)
+            if sandbox_repo:
+                branch_name = f"{slugify(description)}-{pid}"
+                subprocess.run(["git", "add", "."], cwd=dest, capture_output=True)
+                subprocess.run(
+                    ["git", "commit", "-m", "plaibox: initial import"],
+                    cwd=dest, capture_output=True,
+                )
+                push_sandbox_branch(dest, sandbox_repo, branch_name)
+                final_meta["sandbox_repo"] = sandbox_repo
+                final_meta["sandbox_branch"] = branch_name
+                write_metadata(dest, final_meta)
+
+        auto_push(
+            project_id=pid,
+            local_meta=final_meta,
+            space=space if space == "s" else "projects",
+            remote=final_meta.get("remote"),
+            sandbox_repo=sandbox_repo,
+            sync_config=sync_cfg,
+            config_dir=Path(config_path).parent if config_path else DEFAULT_CONFIG_PATH.parent,
+        )
+
 
 @cli.command()
 @click.argument("directory", type=click.Path(exists=True, file_okay=False))
@@ -887,6 +928,36 @@ def scan(directory: str, git_only: bool, config_path: str | None):
             if not (dest / ".venv").exists() and "python" in detect_tech(dest):
                 if click.confirm("  Python project detected. Create a .venv?", default=True):
                     subprocess.run(["python3", "-m", "venv", ".venv"], cwd=dest, capture_output=True)
+
+            # Auto-push to sync if enabled
+            if is_sync_enabled(cfg):
+                sync_cfg = get_sync_config(cfg)
+                from plaibox.sync import get_active_sandbox_repo
+                sandbox_repo = None
+
+                if not meta.get("private") and status == "sandbox":
+                    sandbox_repo = get_active_sandbox_repo(sync_cfg)
+                    if sandbox_repo:
+                        branch_name = f"{slugify(description)}-{new_id}"
+                        subprocess.run(["git", "add", "."], cwd=dest, capture_output=True)
+                        subprocess.run(
+                            ["git", "commit", "-m", "plaibox: initial import"],
+                            cwd=dest, capture_output=True,
+                        )
+                        push_sandbox_branch(dest, sandbox_repo, branch_name)
+                        meta["sandbox_repo"] = sandbox_repo
+                        meta["sandbox_branch"] = branch_name
+                        write_metadata(dest, meta)
+
+                auto_push(
+                    project_id=new_id,
+                    local_meta=meta,
+                    space="sandbox" if space == "s" else "projects",
+                    remote=meta.get("remote"),
+                    sandbox_repo=sandbox_repo,
+                    sync_config=sync_cfg,
+                    config_dir=Path(config_path).parent if config_path else DEFAULT_CONFIG_PATH.parent,
+                )
 
             click.echo(f"  Imported to {dest}\n")
             imported += 1
