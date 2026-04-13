@@ -235,6 +235,7 @@ def auto_push(
             "created": local_meta.get("created", ""),
             "tags": local_meta.get("tags", []),
             "tech": local_meta.get("tech", []),
+            "private": local_meta.get("private", False),
             "remote": remote,
             "space": space,
             "sandbox_repo": sandbox_repo,

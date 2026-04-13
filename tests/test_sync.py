@@ -292,3 +292,36 @@ def test_get_active_sandbox_repo_returns_none_when_empty():
     sync_cfg = {"sandbox_repos": [], "sandbox_branch_limit": 50}
     result = get_active_sandbox_repo(sync_cfg)
     assert result is None
+
+
+def test_auto_push_includes_private_field(tmp_path):
+    """auto_push should include private field in sync metadata when present."""
+    bare = _init_bare_repo(tmp_path / "remote-sync.git")
+    config_dir = tmp_path / ".plaibox"
+    config_dir.mkdir()
+    sync_cfg = _make_sync_config(tmp_path, bare)
+
+    auto_push(
+        project_id="abc123",
+        local_meta={
+            "name": "secret",
+            "description": "secret project",
+            "status": "sandbox",
+            "created": "2026-04-13",
+            "tags": [],
+            "tech": [],
+            "private": True,
+        },
+        space="sandbox",
+        remote=None,
+        sandbox_repo=None,
+        sync_config=sync_cfg,
+        config_dir=config_dir,
+    )
+
+    # Read the pushed metadata
+    repo_path = config_dir / "sync-repo"
+    meta_file = repo_path / "projects" / "abc123.yaml"
+    assert meta_file.exists()
+    meta = yaml.safe_load(meta_file.read_text())
+    assert meta["private"] is True
