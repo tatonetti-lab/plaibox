@@ -1233,3 +1233,108 @@ def test_scan_multiple_projects(tmp_path):
     assert "Imported 1 project." in result.output
     assert not (scan_dir / "app-one").exists()
     assert (scan_dir / "app-two").exists()
+
+
+def test_ls_shows_sync_hint_when_not_configured(tmp_path):
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    for space in ("sandbox", "projects", "archive"):
+        (root / space).mkdir()
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.dump({"root": str(root), "stale_days": 30}))
+
+    _make_project(root, "sandbox", "2026-04-10_test", {
+        "name": "test", "description": "A test",
+        "status": "sandbox", "created": "2026-04-10", "tags": [], "tech": [],
+    })
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["ls", "--config", str(config_path)])
+
+    assert "plaibox sync init" in result.output
+
+
+def test_ls_no_sync_hint_when_configured(tmp_path):
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    for space in ("sandbox", "projects", "archive"):
+        (root / space).mkdir()
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.dump({
+        "root": str(root), "stale_days": 30,
+        "sync": {"enabled": True, "repo": "x", "sandbox_repos": [],
+                 "sandbox_branch_limit": 50, "machine_name": "m"},
+    }))
+
+    _make_project(root, "sandbox", "2026-04-10_test", {
+        "name": "test", "description": "A test",
+        "status": "sandbox", "created": "2026-04-10", "tags": [], "tech": [],
+    })
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["ls", "--config", str(config_path)])
+
+    assert "plaibox sync init" not in result.output
+
+
+def test_ls_no_sync_hint_when_dismissed(tmp_path):
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    for space in ("sandbox", "projects", "archive"):
+        (root / space).mkdir()
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.dump({
+        "root": str(root), "stale_days": 30,
+        "sync_hint_dismissed": True,
+    }))
+
+    _make_project(root, "sandbox", "2026-04-10_test", {
+        "name": "test", "description": "A test",
+        "status": "sandbox", "created": "2026-04-10", "tags": [], "tech": [],
+    })
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["ls", "--config", str(config_path)])
+
+    assert "plaibox sync init" not in result.output
+
+
+def test_ls_shows_remote_projects(tmp_path):
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    for space in ("sandbox", "projects", "archive"):
+        (root / space).mkdir()
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.dump({
+        "root": str(root), "stale_days": 30,
+        "sync": {"enabled": True, "repo": "x", "sandbox_repos": [],
+                 "sandbox_branch_limit": 50, "machine_name": "m"},
+    }))
+
+    # Write a remote registry file
+    registry = {
+        "rem123": {
+            "name": "remote-app",
+            "description": "From another machine",
+            "status": "project",
+            "created": "2026-04-13",
+            "tags": [], "tech": ["python"],
+            "remote": "git@github.com:user/remote-app.git",
+            "space": "projects",
+            "sandbox_repo": None,
+            "updated": "2026-04-13T15:00:00",
+            "machine": "other-machine",
+        }
+    }
+    registry_path = config_path.parent / "remote-registry.yaml"
+    registry_path.write_text(yaml.dump(registry))
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["ls", "--config", str(config_path)])
+
+    assert "remote-app" in result.output
+    assert "remote" in result.output.lower()

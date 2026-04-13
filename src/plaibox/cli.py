@@ -77,45 +77,79 @@ def new(description: str | None, create_venv: bool, config_path: str | None):
 @click.option("--config", "config_path", default=None, help="Path to config file.")
 def ls_cmd(space: str | None, stale: bool, config_path: str | None):
     """List projects."""
-    cfg = load_config(Path(config_path) if config_path else DEFAULT_CONFIG_PATH)
+    cfg_path = Path(config_path) if config_path else DEFAULT_CONFIG_PATH
+    cfg = load_config(cfg_path)
     root = Path(cfg["root"]).expanduser()
     stale_days = cfg["stale_days"]
 
     projects = discover_projects(root)
 
+    # Load remote-only projects if sync is enabled
+    remote_only = []
+    if is_sync_enabled(cfg):
+        registry_path = cfg_path.parent / "remote-registry.yaml"
+        if registry_path.exists():
+            with open(registry_path) as f:
+                registry = yaml.safe_load(f) or {}
+            local_ids = {p["id"] for p in projects}
+            for rid, rmeta in registry.items():
+                if rid not in local_ids:
+                    remote_only.append({"id": rid, "meta": rmeta, "space": "remote", "path": None})
+
+    all_projects = projects + remote_only
+
     if space:
-        projects = [p for p in projects if p["space"] == space]
+        all_projects = [p for p in all_projects if p["space"] == space]
 
     if stale:
-        projects = [p for p in projects if p["space"] == "sandbox"]
+        all_projects = [p for p in all_projects if p["space"] == "sandbox"]
         cutoff = date.today() - timedelta(days=stale_days)
-        projects = [p for p in projects if _last_modified(p["path"]) < cutoff]
+        all_projects = [p for p in all_projects if p.get("path") and _last_modified(p["path"]) < cutoff]
 
-    if not projects:
+    if not all_projects:
         click.echo("No projects found.")
+        _show_sync_hint(cfg)
         return
 
     click.echo(f"  {'ID':6s}  {'STATUS':8s}  {'CREATED':10s}  {'MODIFIED':10s}  {'NAME':25s}  DESCRIPTION")
     click.echo(f"  {'─' * 6}  {'─' * 8}  {'─' * 10}  {'─' * 10}  {'─' * 25}  {'─' * 20}")
 
-    for p in projects:
+    for p in all_projects:
         meta = p["meta"]
-        tech = detect_tech(p["path"])
+        if p["path"] is not None:
+            tech = detect_tech(p["path"])
+            modified = _last_modified(p["path"])
+        else:
+            tech = meta.get("tech", [])
+            modified = meta.get("updated", "-")[:10] if meta.get("updated") else "-"
         tech_str = ", ".join(tech) if tech else "-"
         tags_str = ", ".join(meta.get("tags", [])) if meta.get("tags") else ""
-        modified = _last_modified(p["path"])
+
+        status_display = "remote" if p["space"] == "remote" else meta["status"]
 
         click.echo(
-            f"  {p['id']}  {meta['status']:8s}  {meta['created']}  "
+            f"  {p['id']}  {status_display:8s}  {meta['created']}  "
             f"{modified}  {meta['name']:25s}  {meta['description']}"
         )
         detail_parts = [f"tech: {tech_str}"]
         if tags_str:
             detail_parts.append(f"tags: {tags_str}")
+        if p["space"] == "remote":
+            detail_parts.append(f"on: {meta.get('machine', '?')}")
         click.echo(f"        {' | '.join(detail_parts)}")
 
     click.echo("")
     click.echo("Open a project: plaibox open <name-or-id>")
+    _show_sync_hint(cfg)
+
+
+def _show_sync_hint(cfg: dict) -> None:
+    """Show a one-time hint about sync if not configured or dismissed."""
+    if is_sync_enabled(cfg):
+        return
+    if cfg.get("sync_hint_dismissed"):
+        return
+    click.echo("Tip: Use plaibox across devices with 'plaibox sync init'")
 
 
 def _last_modified(path: Path) -> date:
