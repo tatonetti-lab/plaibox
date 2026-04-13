@@ -351,38 +351,134 @@ def delete(config_path: str | None, project_dir: str):
 @click.option("--config", "config_path", default=None, help="Path to config file.")
 def open_cmd(query: str, config_path: str | None):
     """Find a project by name or description and print its path."""
-    cfg = load_config(Path(config_path) if config_path else DEFAULT_CONFIG_PATH)
+    cfg_path = Path(config_path) if config_path else DEFAULT_CONFIG_PATH
+    cfg = load_config(cfg_path)
     root = Path(cfg["root"]).expanduser()
 
     projects = discover_projects(root)
     query_lower = query.lower()
 
-    # Check for exact ID match first
+    # Check for exact ID match first (local)
     for p in projects:
         if p["id"] == query_lower:
             click.echo(str(p["path"]))
             return
 
+    # Try fuzzy match on local projects
     matches = fuzzy_match(query, projects)
-
-    if not matches:
-        click.echo(f"No project matching '{query}'.")
-        raise SystemExit(1)
 
     if len(matches) == 1:
         click.echo(str(matches[0]["path"]))
         return
 
-    click.echo(f"Multiple matches for '{query}':")
-    for i, m in enumerate(matches, 1):
-        click.echo(f"  {i}. {m['meta']['name']} — {m['meta']['description']}")
+    if len(matches) > 1:
+        click.echo(f"Multiple matches for '{query}':")
+        for i, m in enumerate(matches, 1):
+            click.echo(f"  {i}. {m['meta']['name']} — {m['meta']['description']}")
+        choice = click.prompt("Which one?", type=int)
+        if 1 <= choice <= len(matches):
+            click.echo(str(matches[choice - 1]["path"]))
+        else:
+            click.echo("Invalid choice.")
+            raise SystemExit(1)
+        return
 
-    choice = click.prompt("Which one?", type=int)
-    if 1 <= choice <= len(matches):
-        click.echo(str(matches[choice - 1]["path"]))
-    else:
-        click.echo("Invalid choice.")
+    # No local match — check remote registry
+    if is_sync_enabled(cfg):
+        registry_path = cfg_path.parent / "remote-registry.yaml"
+        if registry_path.exists():
+            with open(registry_path) as f:
+                registry = yaml.safe_load(f) or {}
+
+            local_ids = {p["id"] for p in projects}
+            remote_projects = []
+            for rid, rmeta in registry.items():
+                if rid not in local_ids:
+                    remote_projects.append({"id": rid, "meta": rmeta, "space": "remote", "path": None})
+
+            # Check ID match
+            for rp in remote_projects:
+                if rp["id"] == query_lower:
+                    _clone_remote_project(rp, cfg, root)
+                    return
+
+            # Fuzzy match on remote projects
+            remote_matches = fuzzy_match(query, remote_projects)
+            if len(remote_matches) == 1:
+                _clone_remote_project(remote_matches[0], cfg, root)
+                return
+            elif len(remote_matches) > 1:
+                click.echo(f"Multiple remote matches for '{query}':")
+                for i, m in enumerate(remote_matches, 1):
+                    click.echo(f"  {i}. {m['meta']['name']} — {m['meta']['description']} (on {m['meta'].get('machine', '?')})")
+                choice = click.prompt("Which one?", type=int)
+                if 1 <= choice <= len(remote_matches):
+                    _clone_remote_project(remote_matches[choice - 1], cfg, root)
+                else:
+                    click.echo("Invalid choice.")
+                    raise SystemExit(1)
+                return
+
+    click.echo(f"No project matching '{query}'.")
+    raise SystemExit(1)
+
+
+def _clone_remote_project(remote_project: dict, cfg: dict, root: Path) -> None:
+    """Clone a remote-only project locally."""
+    meta = remote_project["meta"]
+    name = meta["name"]
+    space = meta.get("space", "projects")
+
+    remote_url = meta.get("remote")
+    sandbox_repo = meta.get("sandbox_repo")
+
+    if not remote_url and not sandbox_repo:
+        click.echo(f"Project '{name}' exists on {meta.get('machine', 'another machine')} but has no remote URL.")
         raise SystemExit(1)
+
+    click.echo(f"Project '{name}' is on {meta.get('machine', 'another machine')}.")
+    if not click.confirm("Clone it locally?"):
+        click.echo("Cancelled.")
+        return
+
+    if space == "sandbox":
+        dirname = f"{meta['created']}_{slugify(meta['description'])}"
+        dest = root / "sandbox" / dirname
+    else:
+        dest = root / space / name
+
+    if dest.exists():
+        click.echo(f"Error: {dest} already exists.", err=True)
+        raise SystemExit(1)
+
+    if sandbox_repo:
+        # Clone from sandbox repo branch
+        branch_name = f"{slugify(meta['description'])}-{remote_project['id']}"
+        success = clone_sandbox_branch(sandbox_repo, branch_name, dest)
+    else:
+        # Clone from project's own repo
+        result = subprocess.run(
+            ["git", "clone", remote_url, str(dest)],
+            capture_output=True, text=True,
+        )
+        success = result.returncode == 0
+
+    if not success:
+        click.echo(f"Failed to clone '{name}'.", err=True)
+        raise SystemExit(1)
+
+    # Write local metadata
+    write_metadata(dest, {
+        "name": meta["name"],
+        "description": meta["description"],
+        "status": meta["status"],
+        "created": meta["created"],
+        "tags": meta.get("tags", []),
+        "tech": meta.get("tech", []),
+        "remote": remote_url,
+    })
+
+    click.echo(str(dest))
 
 
 @cli.command()

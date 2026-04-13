@@ -1440,3 +1440,75 @@ def test_delete_removes_from_sync(tmp_path):
     pull_sync_repo(repo_path)
     remote = read_remote_projects(repo_path)
     assert len(remote) == 0
+
+
+def test_open_clones_remote_project(tmp_path):
+    import subprocess as sp
+
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    for space in ("sandbox", "projects", "archive"):
+        (root / space).mkdir()
+
+    # Create a bare repo to act as the project's remote
+    project_bare = tmp_path / "remote-app.git"
+    project_bare.mkdir(parents=True)
+    sp.run(["git", "init", "--bare"], cwd=project_bare, capture_output=True)
+
+    # Push some content to it
+    source = tmp_path / "source"
+    source.mkdir()
+    sp.run(["git", "init"], cwd=source, capture_output=True)
+    (source / "app.py").write_text("print('hello')")
+    sp.run(["git", "add", "."], cwd=source, capture_output=True)
+    sp.run(
+        ["git", "commit", "-m", "init"],
+        cwd=source, capture_output=True,
+        env={**__import__("os").environ, "GIT_AUTHOR_NAME": "test",
+             "GIT_AUTHOR_EMAIL": "t@t.com", "GIT_COMMITTER_NAME": "test",
+             "GIT_COMMITTER_EMAIL": "t@t.com"},
+    )
+    sp.run(["git", "remote", "add", "origin", str(project_bare)], cwd=source, capture_output=True)
+    sp.run(["git", "push", "-u", "origin", "HEAD"], cwd=source, capture_output=True)
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.dump({
+        "root": str(root),
+        "stale_days": 30,
+        "sync": {
+            "enabled": True,
+            "repo": "unused",
+            "sandbox_repos": [],
+            "sandbox_branch_limit": 50,
+            "machine_name": "test-machine",
+        },
+    }))
+
+    # Write remote registry with the project
+    registry = {
+        "rem123": {
+            "name": "remote-app",
+            "description": "From another machine",
+            "status": "project",
+            "created": "2026-04-13",
+            "tags": [], "tech": [],
+            "remote": str(project_bare),
+            "space": "projects",
+            "sandbox_repo": None,
+            "updated": "2026-04-13T15:00:00",
+            "machine": "other-machine",
+        }
+    }
+    registry_path = config_path.parent / "remote-registry.yaml"
+    registry_path.write_text(yaml.dump(registry))
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli, ["open", "remote-app", "--config", str(config_path)],
+        input="y\n",  # confirm clone
+    )
+
+    assert result.exit_code == 0
+    # Should have cloned to projects/remote-app
+    cloned = root / "projects" / "remote-app"
+    assert cloned.exists() or str(cloned) in result.output
