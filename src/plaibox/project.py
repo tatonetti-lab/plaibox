@@ -1,5 +1,6 @@
 import hashlib
 import re
+import uuid
 from datetime import date
 from pathlib import Path
 
@@ -45,8 +46,16 @@ def detect_tech(project_dir: Path) -> list[str]:
     return sorted(found)
 
 
+def generate_project_id() -> str:
+    """Generate a stable 6-character project ID."""
+    return uuid.uuid4().hex[:6]
+
+
 def project_id(project_path: Path) -> str:
-    """Generate a short stable ID from the project path."""
+    """Generate a short stable ID from the project path.
+    DEPRECATED: Use generate_project_id() for new projects.
+    Kept for backwards compatibility with projects that don't have an ID in metadata.
+    """
     h = hashlib.sha1(str(project_path).encode()).hexdigest()
     return h[:6]
 
@@ -165,10 +174,12 @@ def discover_projects(root: Path) -> list[dict]:
             meta = read_metadata(child)
             if meta is None:
                 continue
+            # Use stored ID if available, fall back to path-based
+            pid = meta.get("id") or project_id(child)
             results.append({
                 "path": child,
                 "space": space,
                 "meta": meta,
-                "id": project_id(child),
+                "id": pid,
             })
     return results

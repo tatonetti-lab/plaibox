@@ -16,7 +16,6 @@ from plaibox.sync import (
     ensure_sync_repo_cloned, auto_push, pull_sync_repo,
     read_remote_projects, remove_project_meta,
     push_sandbox_branch, clone_sandbox_branch, delete_sandbox_branch,
-    count_sandbox_branches,
 )
 
 
@@ -44,7 +43,11 @@ def new(description: str | None, create_venv: bool, config_path: str | None):
     project_dir = root / "sandbox" / dirname
     project_dir.mkdir(parents=True, exist_ok=True)
 
+    from plaibox.project import generate_project_id
+    pid = generate_project_id()
+
     meta = {
+        "id": pid,
         "name": slugify(description),
         "description": description,
         "status": "sandbox",
@@ -73,9 +76,8 @@ def new(description: str | None, create_venv: bool, config_path: str | None):
     # Auto-push to sync if enabled
     if is_sync_enabled(cfg):
         sync_cfg = get_sync_config(cfg)
-        from plaibox.project import project_id
-        pid = project_id(project_dir)
-        sandbox_repo = sync_cfg["sandbox_repos"][0] if sync_cfg["sandbox_repos"] else None
+        from plaibox.sync import get_active_sandbox_repo
+        sandbox_repo = get_active_sandbox_repo(sync_cfg)
         branch_name = f"{slugify(description)}-{pid}"
 
         # Push code to sandbox repo
@@ -87,6 +89,10 @@ def new(description: str | None, create_venv: bool, config_path: str | None):
                 cwd=project_dir, capture_output=True,
             )
             push_sandbox_branch(project_dir, sandbox_repo, branch_name)
+            # Save sandbox info to local metadata
+            meta["sandbox_repo"] = sandbox_repo
+            meta["sandbox_branch"] = branch_name
+            write_metadata(project_dir, meta)
 
         # Push metadata to sync repo
         auto_push(
@@ -215,12 +221,25 @@ def promote(config_path: str | None, project_dir: str):
 
     shutil.move(str(project_path), str(new_path))
 
+    # Get project ID before updating metadata
+    from plaibox.project import project_id
+    pid = meta.get("id") or project_id(new_path)
+
     meta["status"] = "project"
     meta["name"] = new_name
     meta["remote"] = None
     write_metadata(new_path, meta)
 
     click.echo(f"Promoted to {new_path}")
+
+    # Clean up sandbox branch
+    sandbox_repo = meta.get("sandbox_repo")
+    sandbox_branch = meta.get("sandbox_branch")
+    if sandbox_repo and sandbox_branch:
+        try:
+            delete_sandbox_branch(sandbox_repo, sandbox_branch)
+        except Exception:
+            pass
 
     # Offer to create a GitHub repo
     if click.confirm("Create a GitHub repo?", default=True):
@@ -249,8 +268,6 @@ def promote(config_path: str | None, project_dir: str):
     # Auto-push to sync if enabled
     if is_sync_enabled(cfg):
         sync_cfg = get_sync_config(cfg)
-        from plaibox.project import project_id
-        pid = project_id(new_path)
         auto_push(
             project_id=pid,
             local_meta=meta,
@@ -284,6 +301,10 @@ def archive(config_path: str | None, project_dir: str):
 
     shutil.move(str(project_path), str(new_path))
 
+    # Get project ID before updating metadata
+    from plaibox.project import project_id
+    pid = meta.get("id") or project_id(new_path)
+
     meta["status"] = "archived"
     write_metadata(new_path, meta)
 
@@ -292,8 +313,6 @@ def archive(config_path: str | None, project_dir: str):
     # Auto-push to sync if enabled
     if is_sync_enabled(cfg):
         sync_cfg = get_sync_config(cfg)
-        from plaibox.project import project_id
-        pid = project_id(new_path)
         auto_push(
             project_id=pid,
             local_meta=meta,
@@ -326,9 +345,9 @@ def delete(config_path: str | None, project_dir: str):
         click.echo("Cancelled.")
         return
 
-    # Compute ID before deletion
+    # Get ID before deletion
     from plaibox.project import project_id
-    pid = project_id(project_path)
+    pid = meta.get("id") or project_id(project_path)
 
     shutil.rmtree(project_path)
 
@@ -469,6 +488,7 @@ def _clone_remote_project(remote_project: dict, cfg: dict, root: Path) -> None:
 
     # Write local metadata
     write_metadata(dest, {
+        "id": remote_project["id"],  # preserve the sync ID
         "name": meta["name"],
         "description": meta["description"],
         "status": meta["status"],
@@ -477,6 +497,22 @@ def _clone_remote_project(remote_project: dict, cfg: dict, root: Path) -> None:
         "tech": meta.get("tech", []),
         "remote": remote_url,
     })
+
+    # Auto-push so the sync repo knows this machine has the project
+    if is_sync_enabled(cfg):
+        sync_cfg = get_sync_config(cfg)
+        if sync_cfg:
+            auto_push(
+                project_id=remote_project["id"],
+                local_meta={"name": meta["name"], "description": meta["description"],
+                            "status": meta["status"], "created": meta["created"],
+                            "tags": meta.get("tags", []), "tech": meta.get("tech", [])},
+                space=space,
+                remote=remote_url,
+                sandbox_repo=sandbox_repo,
+                sync_config=sync_cfg,
+                config_dir=DEFAULT_CONFIG_PATH.parent,
+            )
 
     click.echo(str(dest))
 
@@ -616,14 +652,20 @@ def import_cmd(path: str, as_project: bool, config_path: str | None):
 
     shutil.move(str(source), str(dest))
 
+    from plaibox.project import generate_project_id
+    # Generate a stable ID
+    new_id = generate_project_id()
+
     # Write metadata (preserve existing if present)
     if existing_meta:
+        existing_meta["id"] = existing_meta.get("id") or new_id
         existing_meta["status"] = status
         if space == "p":
             existing_meta["name"] = name
         write_metadata(dest, existing_meta)
     else:
         meta = {
+            "id": new_id,
             "name": name,
             "description": description,
             "status": status,
@@ -730,7 +772,11 @@ def scan(directory: str, git_only: bool, config_path: str | None):
 
             shutil.move(str(child), str(dest))
 
+            from plaibox.project import generate_project_id
+            new_id = generate_project_id()
+
             meta = {
+                "id": new_id,
                 "name": name,
                 "description": description,
                 "status": status,
@@ -873,7 +919,6 @@ def pull(config_path: str | None):
     remote_projects = read_remote_projects(repo_path)
 
     # Compare with local projects
-    from plaibox.project import project_id
     local_projects = discover_projects(root)
     local_ids = {p["id"] for p in local_projects}
 

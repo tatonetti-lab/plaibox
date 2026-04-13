@@ -59,6 +59,14 @@ def push_project_meta(project_id: str, meta: dict, repo_path: Path) -> bool:
 
 def pull_sync_repo(repo_path: Path) -> bool:
     """Pull latest from the sync repo remote. Returns True on success."""
+    # Check if we have any commits
+    result = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo_path, capture_output=True,
+    )
+    if result.returncode != 0:
+        return True  # No commits yet, nothing to pull
+
     result = subprocess.run(
         ["git", "pull", "--rebase", "origin", "HEAD"],
         cwd=repo_path, capture_output=True,
