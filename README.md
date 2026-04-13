@@ -153,6 +153,24 @@ plaibox open my-experiment     # offers to clone it
 
 Sync is opt-in — plaibox works exactly the same without it. Sandbox project code is stored as branches in a shared repo; promoted projects use their own dedicated GitHub repos.
 
+### Private projects
+
+For sensitive work (e.g., patient data analysis), mark projects as private to prevent code from being pushed to any remote:
+
+```bash
+plaibox new "patient outcomes analysis" --private
+# Code stays local — metadata still syncs so other machines know it exists
+
+plaibox promote
+# Instead of offering gh repo create, prompts for an approved remote URL
+# (e.g., institutional GitHub Enterprise). Can also skip to promote locally.
+
+plaibox unprivate
+# Removes the private flag and retroactively pushes code to the sandbox repo
+```
+
+Private projects show a `*` suffix in `plaibox ls` (e.g., `sandbox*`). On other machines, they appear with `private` status — visible but not cloneable unless a remote URL has been set.
+
 ## Project structure
 
 ```
