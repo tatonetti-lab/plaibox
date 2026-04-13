@@ -1383,3 +1383,60 @@ def test_new_auto_pushes_when_sync_enabled(tmp_path, monkeypatch):
     remote = read_remote_projects(repo_path)
     assert len(remote) == 1
     assert remote[0]["meta"]["name"] == "sync-test-project"
+
+
+def test_delete_removes_from_sync(tmp_path):
+    import subprocess as sp
+
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    for space in ("sandbox", "projects", "archive"):
+        (root / space).mkdir()
+
+    sync_bare = tmp_path / "remote-sync.git"
+    sync_bare.mkdir(parents=True)
+    sp.run(["git", "init", "--bare"], cwd=sync_bare, capture_output=True)
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.dump({
+        "root": str(root),
+        "stale_days": 30,
+        "sync": {
+            "enabled": True,
+            "repo": str(sync_bare),
+            "sandbox_repos": [],
+            "sandbox_branch_limit": 50,
+            "machine_name": "test-machine",
+        },
+    }))
+
+    proj = _make_project(root, "archive", "2026-04-13_old-thing", {
+        "name": "old-thing", "description": "Old",
+        "status": "archived", "created": "2026-04-13", "tags": [], "tech": [],
+    })
+
+    # Seed sync repo with this project
+    from plaibox.sync import ensure_sync_repo_cloned, push_project_meta, pull_sync_repo, read_remote_projects
+    from plaibox.project import project_id
+    sync_cfg = yaml.safe_load(config_path.read_text())["sync"]
+    repo_path = ensure_sync_repo_cloned(sync_cfg, config_path.parent)
+    pid = project_id(proj)
+    push_project_meta(pid, {
+        "name": "old-thing", "description": "Old", "status": "archived",
+        "created": "2026-04-13", "tags": [], "tech": [],
+        "remote": None, "space": "archive", "sandbox_repo": None,
+        "updated": "2026-04-13T15:00:00", "machine": "test-machine",
+    }, repo_path)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli, ["delete", "--config", str(config_path), "--dir", str(proj)],
+        input="y\n",
+    )
+
+    assert result.exit_code == 0
+
+    # Verify removed from sync
+    pull_sync_repo(repo_path)
+    remote = read_remote_projects(repo_path)
+    assert len(remote) == 0

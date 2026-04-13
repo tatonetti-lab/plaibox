@@ -246,6 +246,21 @@ def promote(config_path: str | None, project_dir: str):
     else:
         click.echo("Skipped. You can add a remote later with: gh repo create")
 
+    # Auto-push to sync if enabled
+    if is_sync_enabled(cfg):
+        sync_cfg = get_sync_config(cfg)
+        from plaibox.project import project_id
+        pid = project_id(new_path)
+        auto_push(
+            project_id=pid,
+            local_meta=meta,
+            space="projects",
+            remote=meta.get("remote"),
+            sandbox_repo=None,
+            sync_config=sync_cfg,
+            config_dir=Path(config_path).parent if config_path else DEFAULT_CONFIG_PATH.parent,
+        )
+
 
 @cli.command()
 @click.option("--config", "config_path", default=None, help="Path to config file.")
@@ -274,6 +289,21 @@ def archive(config_path: str | None, project_dir: str):
 
     click.echo(f"Archived to {new_path}")
 
+    # Auto-push to sync if enabled
+    if is_sync_enabled(cfg):
+        sync_cfg = get_sync_config(cfg)
+        from plaibox.project import project_id
+        pid = project_id(new_path)
+        auto_push(
+            project_id=pid,
+            local_meta=meta,
+            space="archive",
+            remote=meta.get("remote"),
+            sandbox_repo=None,
+            sync_config=sync_cfg,
+            config_dir=Path(config_path).parent if config_path else DEFAULT_CONFIG_PATH.parent,
+        )
+
 
 @cli.command()
 @click.option("--config", "config_path", default=None, help="Path to config file.")
@@ -296,7 +326,23 @@ def delete(config_path: str | None, project_dir: str):
         click.echo("Cancelled.")
         return
 
+    # Compute ID before deletion
+    from plaibox.project import project_id
+    pid = project_id(project_path)
+
     shutil.rmtree(project_path)
+
+    # Remove from sync if enabled
+    if is_sync_enabled(cfg):
+        sync_cfg = get_sync_config(cfg)
+        try:
+            repo_path = ensure_sync_repo_cloned(sync_cfg,
+                Path(config_path).parent if config_path else DEFAULT_CONFIG_PATH.parent)
+            pull_sync_repo(repo_path)
+            remove_project_meta(pid, repo_path)
+        except Exception:
+            pass
+
     click.echo(f"Deleted {meta['name']}.")
 
 
