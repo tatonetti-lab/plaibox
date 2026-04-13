@@ -439,6 +439,121 @@ def import_cmd(path: str, as_project: bool, config_path: str | None):
     click.echo(str(dest))
 
 
+@cli.command()
+@click.argument("directory", type=click.Path(exists=True, file_okay=False))
+@click.option("--git-only", is_flag=True, help="Only show directories that contain a git repo.")
+@click.option("--config", "config_path", default=None, help="Path to config file.")
+def scan(directory: str, git_only: bool, config_path: str | None):
+    """Scan a directory for existing projects to import into plaibox."""
+    cfg = load_config(Path(config_path) if config_path else DEFAULT_CONFIG_PATH)
+    root = Path(cfg["root"]).expanduser().resolve()
+    ensure_spaces(root)
+
+    scan_dir = Path(directory).resolve()
+
+    # Load ignore list
+    ignore_path = (Path(config_path).parent if config_path else DEFAULT_CONFIG_PATH.parent) / "scan-ignore"
+    ignored = set()
+    if ignore_path.exists():
+        ignored = {line.strip() for line in ignore_path.read_text().splitlines() if line.strip()}
+
+    # Collect candidate directories (one level deep, non-hidden)
+    candidates = []
+    for child in sorted(scan_dir.iterdir()):
+        if not child.is_dir() or child.name.startswith("."):
+            continue
+        resolved = str(child.resolve())
+        # Skip if already inside plaibox root
+        try:
+            child.resolve().relative_to(root)
+            continue
+        except ValueError:
+            pass
+        # Skip if in ignore list
+        if resolved in ignored:
+            continue
+        # Skip if already a plaibox project (has metadata)
+        if read_metadata(child) is not None:
+            continue
+        # Filter by git if requested
+        if git_only and not (child / ".git").exists():
+            continue
+        candidates.append(child)
+
+    if not candidates:
+        click.echo("No new projects found to import.")
+        return
+
+    click.echo(f"Found {len(candidates)} director{'y' if len(candidates) == 1 else 'ies'} in {scan_dir}\n")
+
+    imported = 0
+    for child in candidates:
+        has_git = (child / ".git").exists()
+        tech = detect_tech(child)
+        tech_str = ", ".join(tech) if tech else "unknown"
+        modified = _last_modified(child)
+
+        click.echo(f"  {child}/")
+        click.echo(f"  {'git' if has_git else 'no git'}  |  tech: {tech_str}  |  modified: {modified}")
+        action = click.prompt("  [i]mport / [s]kip / [n]ever", type=click.Choice(["i", "s", "n"]))
+
+        if action == "i":
+            description = click.prompt("  Description", default=child.name)
+            space = click.prompt("  Import as: [s]andbox or [p]roject", type=click.Choice(["s", "p"]))
+
+            today = date.today()
+            if space == "s":
+                dirname = make_sandbox_dirname(description, today)
+                dest = root / "sandbox" / dirname
+                status = "sandbox"
+                name = slugify(description)
+            else:
+                name = click.prompt("  Project name", default=slugify(description))
+                dest = root / "projects" / name
+                status = "project"
+
+            if dest.exists():
+                click.echo(f"  Error: {dest} already exists. Skipping.\n")
+                continue
+
+            shutil.move(str(child), str(dest))
+
+            meta = {
+                "name": name,
+                "description": description,
+                "status": status,
+                "created": today.isoformat(),
+                "tags": [],
+                "tech": detect_tech(dest),
+            }
+            write_metadata(dest, meta)
+
+            if not (dest / ".git").exists():
+                subprocess.run(["git", "init"], cwd=dest, capture_output=True)
+
+            write_gitignore(dest)
+
+            # Offer venv for Python projects
+            if not (dest / ".venv").exists() and "python" in detect_tech(dest):
+                if click.confirm("  Python project detected. Create a .venv?", default=True):
+                    subprocess.run(["python3", "-m", "venv", ".venv"], cwd=dest, capture_output=True)
+
+            click.echo(f"  Imported to {dest}\n")
+            imported += 1
+        elif action == "n":
+            ignored.add(str(child.resolve()))
+            click.echo(f"  Ignored permanently.\n")
+        else:
+            click.echo(f"  Skipped.\n")
+
+    # Save updated ignore list
+    if ignored:
+        ignore_path.parent.mkdir(parents=True, exist_ok=True)
+        ignore_path.write_text("\n".join(sorted(ignored)) + "\n")
+
+    click.echo(f"Imported {imported} project{'s' if imported != 1 else ''}.")
+
+
 @cli.command("init-shell")
 def init_shell():
     """Print shell function for cd integration. Add to your .zshrc/.bashrc:

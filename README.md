@@ -82,6 +82,18 @@ plaibox tidy
 # [p]romote / [a]rchive / [s]kip
 ```
 
+### Scan existing project directories
+
+```bash
+plaibox scan ~/Projects
+# Walks through each subdirectory interactively:
+# [i]mport / [s]kip / [n]ever
+# "never" remembers the choice so future scans skip it
+
+plaibox scan ~/Projects --git-only
+# Only show directories that contain a git repo
+```
+
 ### AI session tracking
 
 Use `plaibox claude` or `plaibox codex` instead of calling the tools directly. Plaibox wraps the session and automatically captures the resume command when you exit.

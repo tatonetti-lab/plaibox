@@ -934,3 +934,199 @@ def test_import_preserves_existing_git(tmp_path):
         ["git", "log", "--oneline"], cwd=new_dir, capture_output=True, text=True
     )
     assert "init" in log.stdout
+
+
+# --- scan command tests ---
+
+
+def _setup_scan_env(tmp_path):
+    """Helper to set up plaibox root, config, and a scan directory with projects."""
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    for space in ("sandbox", "projects", "archive"):
+        (root / space).mkdir()
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.dump({"root": str(root), "stale_days": 30}))
+
+    scan_dir = tmp_path / "Projects"
+    scan_dir.mkdir()
+
+    return root, config_path, scan_dir
+
+
+def test_scan_import_project(tmp_path):
+    root, config_path, scan_dir = _setup_scan_env(tmp_path)
+
+    proj = scan_dir / "my-app"
+    proj.mkdir()
+    (proj / "main.py").write_text("print('hi')")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["scan", str(scan_dir), "--config", str(config_path)],
+        input="i\nMy cool app\ns\n",  # import, description, sandbox
+    )
+
+    assert result.exit_code == 0
+    assert "Imported" in result.output
+    assert not proj.exists()
+
+    sandbox_dirs = list((root / "sandbox").iterdir())
+    assert len(sandbox_dirs) == 1
+    assert "my-cool-app" in sandbox_dirs[0].name
+
+
+def test_scan_skip_project(tmp_path):
+    root, config_path, scan_dir = _setup_scan_env(tmp_path)
+
+    proj = scan_dir / "skip-me"
+    proj.mkdir()
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["scan", str(scan_dir), "--config", str(config_path)],
+        input="s\n",
+    )
+
+    assert result.exit_code == 0
+    assert "Skipped" in result.output
+    assert proj.exists()  # still there
+
+
+def test_scan_never_persists(tmp_path):
+    root, config_path, scan_dir = _setup_scan_env(tmp_path)
+
+    proj = scan_dir / "ignore-me"
+    proj.mkdir()
+
+    runner = CliRunner()
+
+    # First scan: choose "never"
+    result = runner.invoke(
+        cli,
+        ["scan", str(scan_dir), "--config", str(config_path)],
+        input="n\n",
+    )
+
+    assert result.exit_code == 0
+    assert "Ignored permanently" in result.output
+    assert proj.exists()
+
+    # Verify ignore file was written
+    ignore_path = config_path.parent / "scan-ignore"
+    assert ignore_path.exists()
+    assert str(proj.resolve()) in ignore_path.read_text()
+
+    # Second scan: project should not appear
+    result = runner.invoke(
+        cli,
+        ["scan", str(scan_dir), "--config", str(config_path)],
+    )
+
+    assert "No new projects found" in result.output
+
+
+def test_scan_git_only_flag(tmp_path):
+    import subprocess as sp
+
+    root, config_path, scan_dir = _setup_scan_env(tmp_path)
+
+    # Project with git
+    git_proj = scan_dir / "has-git"
+    git_proj.mkdir()
+    sp.run(["git", "init"], cwd=git_proj, capture_output=True)
+
+    # Project without git
+    no_git_proj = scan_dir / "no-git"
+    no_git_proj.mkdir()
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["scan", str(scan_dir), "--git-only", "--config", str(config_path)],
+        input="s\n",
+    )
+
+    assert result.exit_code == 0
+    assert "has-git" in result.output
+    assert "no-git" not in result.output
+
+
+def test_scan_skips_hidden_dirs(tmp_path):
+    root, config_path, scan_dir = _setup_scan_env(tmp_path)
+
+    hidden = scan_dir / ".hidden-thing"
+    hidden.mkdir()
+    visible = scan_dir / "visible-thing"
+    visible.mkdir()
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["scan", str(scan_dir), "--config", str(config_path)],
+        input="s\n",
+    )
+
+    assert "hidden-thing" not in result.output
+    assert "visible-thing" in result.output
+
+
+def test_scan_skips_existing_plaibox_projects(tmp_path):
+    root, config_path, scan_dir = _setup_scan_env(tmp_path)
+
+    # A directory that already has .plaibox.yaml
+    already_managed = scan_dir / "already-managed"
+    already_managed.mkdir()
+    (already_managed / ".plaibox.yaml").write_text(yaml.dump({
+        "name": "already-managed", "description": "test",
+        "status": "sandbox", "created": "2026-04-10", "tags": [], "tech": [],
+    }))
+
+    # A directory without metadata
+    new_proj = scan_dir / "new-proj"
+    new_proj.mkdir()
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["scan", str(scan_dir), "--config", str(config_path)],
+        input="s\n",
+    )
+
+    assert "already-managed" not in result.output
+    assert "new-proj" in result.output
+
+
+def test_scan_empty_directory(tmp_path):
+    root, config_path, scan_dir = _setup_scan_env(tmp_path)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["scan", str(scan_dir), "--config", str(config_path)],
+    )
+
+    assert result.exit_code == 0
+    assert "No new projects found" in result.output
+
+
+def test_scan_multiple_projects(tmp_path):
+    root, config_path, scan_dir = _setup_scan_env(tmp_path)
+
+    (scan_dir / "app-one").mkdir()
+    (scan_dir / "app-two").mkdir()
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["scan", str(scan_dir), "--config", str(config_path)],
+        input="i\nFirst app\ns\ns\n",  # import first, skip second
+    )
+
+    assert result.exit_code == 0
+    assert "Imported 1 project." in result.output
+    assert not (scan_dir / "app-one").exists()
+    assert (scan_dir / "app-two").exists()
