@@ -15,7 +15,18 @@ def ensure_sync_repo_cloned(sync_config: dict, config_dir: Path) -> Path:
     """Clone the sync repo if not already present. Returns the local repo path."""
     repo_path = get_sync_repo_path(config_dir)
     if (repo_path / ".git").exists():
-        return repo_path
+        # Verify remote URL matches config — re-clone if it changed
+        result = subprocess.run(
+            ["git", "remote", "get-url", "origin"],
+            cwd=repo_path, capture_output=True, text=True,
+        )
+        expected = sync_config["repo"]
+        if result.returncode == 0 and result.stdout.strip() == expected:
+            return repo_path
+        # Remote mismatch or missing — remove and re-clone
+        import shutil
+        shutil.rmtree(repo_path)
+
 
     repo_url = sync_config["repo"]
     result = subprocess.run(
