@@ -133,6 +133,44 @@ Plaibox manages `.venv` automatically when using shell integration:
 - `plaibox exit` deactivates the venv
 - `plaibox claude` / `plaibox codex` activate the venv before launching, so AI tools install packages in the right place
 
+### Cross-device sync
+
+Sync your project registry across machines using a private GitHub repo:
+
+```bash
+# Set up sync (creates GitHub repos, one-time)
+plaibox sync init
+
+# After making changes, metadata is auto-pushed
+plaibox new "my experiment"    # auto-syncs to registry
+
+# On your other machine, pull the latest
+plaibox sync pull
+
+# Open a project that only exists on the other machine
+plaibox open my-experiment     # offers to clone it
+```
+
+Sync is opt-in — plaibox works exactly the same without it. Sandbox project code is stored as branches in a shared repo; promoted projects use their own dedicated GitHub repos.
+
+### Private projects
+
+For sensitive work (e.g., patient data analysis), mark projects as private to prevent code from being pushed to any remote:
+
+```bash
+plaibox new "patient outcomes analysis" --private
+# Code stays local — metadata still syncs so other machines know it exists
+
+plaibox promote
+# Instead of offering gh repo create, prompts for an approved remote URL
+# (e.g., institutional GitHub Enterprise). Can also skip to promote locally.
+
+plaibox unprivate
+# Removes the private flag and retroactively pushes code to the sandbox repo
+```
+
+Private projects show a `*` suffix in `plaibox ls` (e.g., `sandbox*`). On other machines, they appear with `private` status — visible but not cloneable unless a remote URL has been set.
+
 ## Project structure
 
 ```
