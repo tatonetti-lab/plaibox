@@ -1746,3 +1746,82 @@ def test_promote_private_with_remote_url(tmp_path, monkeypatch):
     new_meta = yaml.safe_load((root / "projects" / "secret-analysis" / ".plaibox.yaml").read_text())
     assert new_meta["private"] is True
     assert new_meta["remote"] == str(remote_bare)
+
+
+def test_ls_shows_private_indicator_for_local_project(tmp_path):
+    """Local private projects should show [private] suffix in ls output."""
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    (root / "sandbox").mkdir()
+    (root / "projects").mkdir()
+    (root / "archive").mkdir()
+
+    project_dir = root / "sandbox" / "2026-04-13_secret"
+    project_dir.mkdir()
+    meta = {
+        "id": "sec001",
+        "name": "secret",
+        "description": "secret project",
+        "status": "sandbox",
+        "created": "2026-04-13",
+        "private": True,
+        "tags": [],
+        "tech": [],
+    }
+    (project_dir / ".plaibox.yaml").write_text(yaml.dump(meta))
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.dump({"root": str(root), "stale_days": 30}))
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["ls", "--config", str(config_path)])
+
+    assert result.exit_code == 0
+    # Should show the private indicator (asterisk) in the status
+    assert "sandbox*" in result.output.lower()
+
+
+def test_ls_shows_private_for_remote_private_project(tmp_path):
+    """Remote private projects with no code should show 'private' status."""
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    (root / "sandbox").mkdir()
+    (root / "projects").mkdir()
+    (root / "archive").mkdir()
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.dump({
+        "root": str(root),
+        "stale_days": 30,
+        "sync": {
+            "enabled": True,
+            "repo": "unused",
+            "sandbox_repos": [],
+            "sandbox_branch_limit": 50,
+            "machine_name": "test",
+        },
+    }))
+
+    # Write remote registry with a private project
+    registry = {
+        "prv001": {
+            "name": "patient-data",
+            "description": "Patient analysis",
+            "status": "sandbox",
+            "created": "2026-04-13",
+            "private": True,
+            "remote": None,
+            "sandbox_repo": None,
+            "machine": "other-machine",
+            "tags": [],
+            "tech": [],
+        }
+    }
+    registry_path = tmp_path / "remote-registry.yaml"
+    registry_path.write_text(yaml.dump(registry))
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["ls", "--config", str(config_path)])
+
+    assert result.exit_code == 0
+    assert "private" in result.output.lower()

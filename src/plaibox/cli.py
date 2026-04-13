@@ -168,7 +168,14 @@ def ls_cmd(space: str | None, stale: bool, config_path: str | None):
         tech_str = ", ".join(tech) if tech else "-"
         tags_str = ", ".join(meta.get("tags", [])) if meta.get("tags") else ""
 
-        status_display = "remote" if p["space"] == "remote" else meta["status"]
+        if p["space"] == "remote" and meta.get("private") and not meta.get("remote") and not meta.get("sandbox_repo"):
+            status_display = "private"
+        elif p["space"] == "remote":
+            status_display = "remote"
+        elif meta.get("private"):
+            status_display = meta["status"] + "*"
+        else:
+            status_display = meta["status"]
 
         click.echo(
             f"  {p['id']}  {status_display:8s}  {meta['created']}  "
