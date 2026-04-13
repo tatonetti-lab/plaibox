@@ -1,5 +1,6 @@
 # src/plaibox/cli.py
 import shutil
+import socket
 import subprocess
 from datetime import date, timedelta
 from pathlib import Path
@@ -7,10 +8,16 @@ from pathlib import Path
 import click
 import yaml
 
-from plaibox.config import load_config, DEFAULT_CONFIG_PATH
+from plaibox.config import load_config, save_config, is_sync_enabled, get_sync_config, DEFAULT_CONFIG_PATH
 from plaibox.metadata import write_metadata, read_metadata
 from plaibox.project import slugify, make_sandbox_dirname, discover_projects, detect_tech, ensure_spaces, fuzzy_match, write_gitignore
 from plaibox.shell import shell_init_script
+from plaibox.sync import (
+    ensure_sync_repo_cloned, auto_push, pull_sync_repo,
+    read_remote_projects, remove_project_meta,
+    push_sandbox_branch, clone_sandbox_branch, delete_sandbox_branch,
+    count_sandbox_branches,
+)
 
 
 @click.group()
@@ -552,6 +559,94 @@ def scan(directory: str, git_only: bool, config_path: str | None):
         ignore_path.write_text("\n".join(sorted(ignored)) + "\n")
 
     click.echo(f"Imported {imported} project{'s' if imported != 1 else ''}.")
+
+
+@cli.group()
+def sync():
+    """Cross-device sync commands."""
+    pass
+
+
+@sync.command()
+@click.option("--config", "config_path", default=None, help="Path to config file.")
+def init(config_path: str | None):
+    """Set up cross-device sync with GitHub."""
+    cfg_path = Path(config_path) if config_path else DEFAULT_CONFIG_PATH
+    cfg = load_config(cfg_path)
+
+    if is_sync_enabled(cfg):
+        click.echo("Sync is already configured.")
+        return
+
+    # Check gh auth
+    result = subprocess.run(
+        ["gh", "auth", "status"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        click.echo("Error: GitHub CLI not authenticated. Run 'gh auth login' first.", err=True)
+        raise SystemExit(1)
+
+    click.echo("GitHub accounts available:")
+    click.echo(result.stdout.strip() if result.stdout.strip() else result.stderr.strip())
+
+    if not click.confirm("Continue with this account?"):
+        click.echo("Cancelled. Switch accounts with 'gh auth login' and try again.")
+        return
+
+    # Create sync repo
+    click.echo("Creating plaibox-sync repo...")
+    result = subprocess.run(
+        ["gh", "repo", "create", "plaibox-sync", "--private", "--description",
+         "Plaibox cross-device sync registry"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0 and "already exists" not in result.stderr:
+        click.echo(f"Error creating sync repo: {result.stderr.strip()}", err=True)
+        raise SystemExit(1)
+    sync_url = result.stdout.strip()
+
+    # Get SSH URL for the repo
+    result = subprocess.run(
+        ["gh", "repo", "view", "plaibox-sync", "--json", "sshUrl", "-q", ".sshUrl"],
+        capture_output=True, text=True,
+    )
+    sync_ssh = result.stdout.strip() if result.returncode == 0 else sync_url
+
+    # Create sandbox repo
+    click.echo("Creating plaibox-sandbox repo...")
+    result = subprocess.run(
+        ["gh", "repo", "create", "plaibox-sandbox", "--private", "--description",
+         "Plaibox sandbox project code"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0 and "already exists" not in result.stderr:
+        click.echo(f"Error creating sandbox repo: {result.stderr.strip()}", err=True)
+        raise SystemExit(1)
+
+    result = subprocess.run(
+        ["gh", "repo", "view", "plaibox-sandbox", "--json", "sshUrl", "-q", ".sshUrl"],
+        capture_output=True, text=True,
+    )
+    sandbox_ssh = result.stdout.strip() if result.returncode == 0 else ""
+
+    machine_name = socket.gethostname()
+
+    cfg["sync"] = {
+        "enabled": True,
+        "repo": sync_ssh,
+        "sandbox_repos": [sandbox_ssh] if sandbox_ssh else [],
+        "sandbox_branch_limit": 50,
+        "machine_name": machine_name,
+    }
+    save_config(cfg, cfg_path)
+
+    # Clone the sync repo locally
+    ensure_sync_repo_cloned(cfg["sync"], cfg_path.parent)
+
+    click.echo(f"Sync configured! Machine name: {machine_name}")
+    click.echo("Your projects will now sync automatically after changes.")
+    click.echo("Run 'plaibox sync pull' on your other machine to get started.")
 
 
 @cli.command("init-shell")

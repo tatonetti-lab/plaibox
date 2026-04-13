@@ -601,6 +601,58 @@ def test_open_fuzzy_word_initials(tmp_path):
     assert str(proj) in result.output
 
 
+def test_sync_init_writes_config(tmp_path, monkeypatch):
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    for space in ("sandbox", "projects", "archive"):
+        (root / space).mkdir()
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.dump({"root": str(root), "stale_days": 30}))
+
+    # Mock gh and git commands
+    call_log = []
+
+    def mock_run(cmd, **kwargs):
+        call_log.append(cmd)
+
+        class Result:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+        r = Result()
+
+        if cmd[0] == "gh" and "auth" in cmd:
+            r.stdout = "  account1 (github.com)\n"
+        elif cmd[0] == "gh" and "repo" in cmd and "create" in cmd:
+            r.stdout = "https://github.com/user/plaibox-sync"
+        elif cmd[0] == "gh" and "repo" in cmd and "view" in cmd:
+            r.stdout = "git@github.com:user/plaibox-sync.git"
+        elif cmd[0] == "git" and cmd[1] == "clone":
+            # Simulate empty repo that can't be cloned yet
+            r.returncode = 128
+            r.stderr = "Repository is empty"
+        elif cmd[0] == "git":
+            r.returncode = 0
+        return r
+
+    monkeypatch.setattr("plaibox.cli.subprocess.run", mock_run)
+    monkeypatch.setattr("plaibox.sync.subprocess.run", mock_run)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli, ["sync", "init", "--config", str(config_path)],
+        input="y\n",  # confirm account
+    )
+
+    assert result.exit_code == 0
+
+    # Config should now have sync section
+    updated_cfg = yaml.safe_load(config_path.read_text())
+    assert "sync" in updated_cfg
+    assert updated_cfg["sync"]["enabled"] is True
+
+
 # --- import command tests ---
 
 
