@@ -1825,3 +1825,50 @@ def test_ls_shows_private_for_remote_private_project(tmp_path):
 
     assert result.exit_code == 0
     assert "private" in result.output.lower()
+
+
+def test_open_private_remote_no_code_shows_message(tmp_path):
+    """Opening a private remote project with no code should show a message, not offer to clone."""
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    (root / "sandbox").mkdir()
+    (root / "projects").mkdir()
+    (root / "archive").mkdir()
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.dump({
+        "root": str(root),
+        "stale_days": 30,
+        "sync": {
+            "enabled": True,
+            "repo": "unused",
+            "sandbox_repos": [],
+            "sandbox_branch_limit": 50,
+            "machine_name": "test",
+        },
+    }))
+
+    # Write remote registry with a private project (no code available)
+    registry = {
+        "prv001": {
+            "name": "patient-data",
+            "description": "Patient analysis",
+            "status": "sandbox",
+            "created": "2026-04-13",
+            "private": True,
+            "remote": None,
+            "sandbox_repo": None,
+            "machine": "work-macbook",
+            "tags": [],
+            "tech": [],
+        }
+    }
+    registry_path = tmp_path / "remote-registry.yaml"
+    registry_path.write_text(yaml.dump(registry))
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["open", "patient-data", "--config", str(config_path)])
+
+    assert result.exit_code == 1
+    assert "private" in result.output.lower()
+    assert "work-macbook" in result.output

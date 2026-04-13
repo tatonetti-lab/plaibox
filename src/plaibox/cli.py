@@ -487,7 +487,10 @@ def _clone_remote_project(remote_project: dict, cfg: dict, root: Path) -> None:
     sandbox_repo = meta.get("sandbox_repo")
 
     if not remote_url and not sandbox_repo:
-        click.echo(f"Project '{name}' exists on {meta.get('machine', 'another machine')} but has no remote URL.")
+        if meta.get("private"):
+            click.echo(f"Project '{name}' is private on {meta.get('machine', 'another machine')}. No remote code available.")
+        else:
+            click.echo(f"Project '{name}' exists on {meta.get('machine', 'another machine')} but has no remote URL.")
         raise SystemExit(1)
 
     click.echo(f"Project '{name}' is on {meta.get('machine', 'another machine')}.")
