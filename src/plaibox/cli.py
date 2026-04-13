@@ -28,8 +28,9 @@ def cli():
 @cli.command()
 @click.argument("description", required=False)
 @click.option("--python", "create_venv", is_flag=True, help="Create a Python virtual environment (.venv).")
+@click.option("--private", is_flag=True, help="Mark project as private (code never pushed to remotes).")
 @click.option("--config", "config_path", default=None, help="Path to config file.")
-def new(description: str | None, create_venv: bool, config_path: str | None):
+def new(description: str | None, create_venv: bool, private: bool, config_path: str | None):
     """Create a new sandbox project."""
     cfg = load_config(Path(config_path) if config_path else DEFAULT_CONFIG_PATH)
     root = Path(cfg["root"]).expanduser()
@@ -56,6 +57,9 @@ def new(description: str | None, create_venv: bool, config_path: str | None):
         "tech": [],
     }
 
+    if private:
+        meta["private"] = True
+
     if create_venv:
         meta["tech"] = ["python"]
 
@@ -77,22 +81,26 @@ def new(description: str | None, create_venv: bool, config_path: str | None):
     if is_sync_enabled(cfg):
         sync_cfg = get_sync_config(cfg)
         from plaibox.sync import get_active_sandbox_repo
-        sandbox_repo = get_active_sandbox_repo(sync_cfg)
-        branch_name = f"{slugify(description)}-{pid}"
+        sandbox_repo = None
+        branch_name = None
 
-        # Push code to sandbox repo
-        if sandbox_repo:
-            # Need at least one commit to push
-            subprocess.run(["git", "add", "."], cwd=project_dir, capture_output=True)
-            subprocess.run(
-                ["git", "commit", "-m", "plaibox: initial project"],
-                cwd=project_dir, capture_output=True,
-            )
-            push_sandbox_branch(project_dir, sandbox_repo, branch_name)
-            # Save sandbox info to local metadata
-            meta["sandbox_repo"] = sandbox_repo
-            meta["sandbox_branch"] = branch_name
-            write_metadata(project_dir, meta)
+        if not meta.get("private"):
+            sandbox_repo = get_active_sandbox_repo(sync_cfg)
+            branch_name = f"{slugify(description)}-{pid}"
+
+            # Push code to sandbox repo
+            if sandbox_repo:
+                # Need at least one commit to push
+                subprocess.run(["git", "add", "."], cwd=project_dir, capture_output=True)
+                subprocess.run(
+                    ["git", "commit", "-m", "plaibox: initial project"],
+                    cwd=project_dir, capture_output=True,
+                )
+                push_sandbox_branch(project_dir, sandbox_repo, branch_name)
+                # Save sandbox info to local metadata
+                meta["sandbox_repo"] = sandbox_repo
+                meta["sandbox_branch"] = branch_name
+                write_metadata(project_dir, meta)
 
         # Push metadata to sync repo
         auto_push(

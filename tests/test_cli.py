@@ -1577,3 +1577,80 @@ def test_sync_full_lifecycle(tmp_path):
     # Machine B can see it in ls
     result = runner.invoke(cli, ["ls", "--config", str(config_b)])
     assert "cross-device-test" in result.output
+
+
+def test_new_private_sets_flag_and_skips_sandbox_push(tmp_path, monkeypatch):
+    """Private projects should have private: true in metadata and skip sandbox push."""
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    (root / "sandbox").mkdir()
+    (root / "projects").mkdir()
+    (root / "archive").mkdir()
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.dump({"root": str(root), "stale_days": 30}))
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["new", "secret research", "--private", "--config", str(config_path)])
+
+    assert result.exit_code == 0
+
+    # Should have created a directory in sandbox
+    sandbox_dirs = list((root / "sandbox").iterdir())
+    assert len(sandbox_dirs) == 1
+
+    # Metadata should have private: true
+    meta = yaml.safe_load((sandbox_dirs[0] / ".plaibox.yaml").read_text())
+    assert meta["private"] is True
+    assert meta["description"] == "secret research"
+
+
+def test_new_private_with_sync_skips_sandbox_push(tmp_path, monkeypatch):
+    """When sync is enabled, private projects should NOT push code to sandbox repo."""
+    import subprocess
+
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    (root / "sandbox").mkdir()
+    (root / "projects").mkdir()
+    (root / "archive").mkdir()
+
+    # Create a bare repo to act as sandbox
+    sandbox_bare = tmp_path / "sandbox-bare.git"
+    subprocess.run(["git", "init", "--bare", str(sandbox_bare)], capture_output=True)
+
+    # Create a bare repo to act as sync repo
+    sync_bare = tmp_path / "sync-bare.git"
+    subprocess.run(["git", "init", "--bare", str(sync_bare)], capture_output=True)
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.dump({
+        "root": str(root),
+        "stale_days": 30,
+        "sync": {
+            "enabled": True,
+            "repo": str(sync_bare),
+            "sandbox_repos": [str(sandbox_bare)],
+            "sandbox_branch_limit": 50,
+            "machine_name": "test-machine",
+        },
+    }))
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["new", "private experiment", "--private", "--config", str(config_path)])
+
+    assert result.exit_code == 0
+
+    # Sandbox repo should have NO branches (code was not pushed)
+    ls_result = subprocess.run(
+        ["git", "ls-remote", "--heads", str(sandbox_bare)],
+        capture_output=True, text=True,
+    )
+    assert ls_result.stdout.strip() == ""
+
+    # But metadata should NOT have sandbox_repo set
+    sandbox_dirs = list((root / "sandbox").iterdir())
+    meta = yaml.safe_load((sandbox_dirs[0] / ".plaibox.yaml").read_text())
+    assert meta["private"] is True
+    assert meta.get("sandbox_repo") is None
+    assert meta.get("sandbox_branch") is None
