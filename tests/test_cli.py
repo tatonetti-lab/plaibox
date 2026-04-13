@@ -538,6 +538,69 @@ def test_init_shell_outputs_function():
     assert "plaibox()" in result.output or "function plaibox" in result.output
 
 
+def test_new_creates_gitignore(tmp_path):
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    for space in ("sandbox", "projects", "archive"):
+        (root / space).mkdir()
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.dump({"root": str(root), "stale_days": 30}))
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["new", "test gitignore", "--config", str(config_path)])
+
+    assert result.exit_code == 0
+    project_path = Path(result.output.strip())
+    gitignore = project_path / ".gitignore"
+    assert gitignore.exists()
+    assert ".venv/" in gitignore.read_text()
+
+
+def test_open_fuzzy_subsequence(tmp_path):
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    for space in ("sandbox", "projects", "archive"):
+        (root / space).mkdir()
+
+    proj = _make_project(root, "projects", "patient-tracker", {
+        "name": "patient-tracker", "description": "Track patient outcomes",
+        "status": "project", "created": "2026-04-01", "tags": [], "tech": [],
+    })
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.dump({"root": str(root), "stale_days": 30}))
+
+    runner = CliRunner()
+    # "pttrk" is a subsequence of "patient-tracker"
+    result = runner.invoke(cli, ["open", "pttrk", "--config", str(config_path)])
+
+    assert result.exit_code == 0
+    assert str(proj) in result.output
+
+
+def test_open_fuzzy_word_initials(tmp_path):
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    for space in ("sandbox", "projects", "archive"):
+        (root / space).mkdir()
+
+    proj = _make_project(root, "projects", "lab-dashboard", {
+        "name": "lab-dashboard", "description": "Dashboard for lab results",
+        "status": "project", "created": "2026-04-01", "tags": [], "tech": [],
+    })
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.dump({"root": str(root), "stale_days": 30}))
+
+    runner = CliRunner()
+    # "ld" matches word initials of "lab-dashboard"
+    result = runner.invoke(cli, ["open", "ld", "--config", str(config_path)])
+
+    assert result.exit_code == 0
+    assert str(proj) in result.output
+
+
 # --- import command tests ---
 
 

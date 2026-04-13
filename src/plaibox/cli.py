@@ -9,7 +9,7 @@ import yaml
 
 from plaibox.config import load_config, DEFAULT_CONFIG_PATH
 from plaibox.metadata import write_metadata, read_metadata
-from plaibox.project import slugify, make_sandbox_dirname, discover_projects, detect_tech, ensure_spaces
+from plaibox.project import slugify, make_sandbox_dirname, discover_projects, detect_tech, ensure_spaces, fuzzy_match, write_gitignore
 from plaibox.shell import shell_init_script
 
 
@@ -52,6 +52,7 @@ def new(description: str | None, create_venv: bool, config_path: str | None):
     write_metadata(project_dir, meta)
 
     subprocess.run(["git", "init"], cwd=project_dir, capture_output=True)
+    write_gitignore(project_dir)
 
     if create_venv:
         subprocess.run(
@@ -246,12 +247,7 @@ def open_cmd(query: str, config_path: str | None):
             click.echo(str(p["path"]))
             return
 
-    matches = []
-    for p in projects:
-        name = p["meta"].get("name", "").lower()
-        desc = p["meta"].get("description", "").lower()
-        if query_lower in name or query_lower in desc:
-            matches.append(p)
+    matches = fuzzy_match(query, projects)
 
     if not matches:
         click.echo(f"No project matching '{query}'.")
@@ -428,6 +424,8 @@ def import_cmd(path: str, as_project: bool, config_path: str | None):
     # Init git if not already a repo
     if not (dest / ".git").exists():
         subprocess.run(["git", "init"], cwd=dest, capture_output=True)
+
+    write_gitignore(dest)
 
     # Offer to create venv if Python project without one
     if not (dest / ".venv").exists() and detect_tech(dest) and "python" in detect_tech(dest):
