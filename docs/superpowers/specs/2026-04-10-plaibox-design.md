@@ -44,6 +44,7 @@ status: sandbox          # sandbox | project | archived
 created: 2026-04-10
 tags: []                 # user-defined, optional
 tech: []                 # auto-detected (e.g., [python, react])
+session: claude --resume abc123  # AI session resume command (auto-captured)
 ```
 
 Design decisions:
@@ -57,28 +58,49 @@ Design decisions:
 
 ### Creating
 
-- `plaibox new "dashboard for tracking lab results"` — creates a sandbox project with timestamped folder, initializes git, writes `.plaibox.yaml`, and prints the project path (shell function from `plaibox init-shell` handles the `cd`).
+- `plaibox new "dashboard for tracking lab results"` — creates a sandbox project with timestamped folder, initializes git, writes `.plaibox.yaml` and `.gitignore`, and prints the project path (shell function from `plaibox init-shell` handles the `cd`).
+- `plaibox new "ml experiment" --python` — same as above, but also creates a `.venv` virtual environment.
 - If the description is omitted, plaibox prompts for one.
 
 ### Browsing
 
-- `plaibox ls` — lists all projects across all spaces with status, description, and last-modified date.
+- `plaibox ls` — lists all projects across all spaces with ID, status, created/modified dates, name, description, and tech stack.
 - `plaibox ls sandbox` — filter to a specific space.
 - `plaibox ls --stale` — show sandbox projects untouched for 30+ days.
 
 ### Lifecycle
 
-- `plaibox promote` (run from inside a project) — moves from sandbox to projects, prompts for a clean name, updates `.plaibox.yaml`.
+- `plaibox promote` (run from inside a project) — moves from sandbox to projects, prompts for a clean name, updates `.plaibox.yaml`. Offers to create a GitHub repo via `gh repo create`.
 - `plaibox archive` (run from inside a project) — moves to archive, updates status.
 - `plaibox delete` — permanently removes an archived project. Safety constraint: can only delete from archive, not directly from sandbox or projects.
 
 ### Navigation
 
-- `plaibox open <name>` — fuzzy matches against project names and descriptions, prints the path to the match. To enable `cd` behavior, users add a shell function (provided by `plaibox init-shell`) that wraps the CLI and changes directory automatically.
+- `plaibox open <name>` — scored fuzzy matching against project names and descriptions (exact > prefix > substring > word-boundary initials > subsequence). Also supports lookup by project ID. Shell function handles `cd` and auto-activates `.venv` if present.
+- `plaibox exit` — cd back to previous directory and deactivate any active venv.
+
+### Importing & Scanning
+
+- `plaibox import [path]` — moves an existing project directory into plaibox. Prompts for description and sandbox/project placement. Supports `--project` flag to skip sandbox. Preserves existing `.plaibox.yaml` if present. Auto-detects Python projects and offers to create a `.venv`.
+- `plaibox scan <directory>` — walks a directory one level deep and interactively triages each subdirectory: `[i]mport / [s]kip / [n]ever`. Skips hidden directories, existing plaibox projects, and previously ignored paths. Supports `--git-only` to filter to directories with git repos. Ignored paths persist in `~/.plaibox/scan-ignore`.
 
 ### Triage
 
 - `plaibox tidy` — lists sandbox projects older than a configurable threshold (default 30 days) and interactively asks the user to promote, archive, or skip each one.
+
+### AI Session Tracking
+
+- `plaibox claude` / `plaibox codex` — wraps the AI tool with `script` to capture terminal output. Automatically extracts and saves the session resume command on exit. Activates `.venv` before launching so the AI tool inherits the correct Python environment.
+- `plaibox session` — shows the saved resume command for the current project. `plaibox session --save <cmd>` saves one manually.
+- On `plaibox open`, the saved session resume command is displayed automatically, with a hint to use `plaibox claude` for auto-tracking.
+
+### Python Virtual Environments
+
+Managed automatically via shell integration:
+- `plaibox new --python` creates a `.venv` in the new project.
+- `plaibox open` / `plaibox new` / `plaibox import` auto-activate `.venv` if one exists and deactivate any previously active venv.
+- `plaibox exit` deactivates the venv.
+- `plaibox claude` / `plaibox codex` activate the venv before launching.
 
 ## Configuration
 
@@ -91,31 +113,23 @@ stale_days: 30               # threshold for --stale flag and tidy command
 
 ## Implementation
 
-- **Language:** Python
-- **CLI framework:** `click` or `typer`
-- **Installation:** `pip install -e .` for local development
-- **Git:** Automatically initialized on `plaibox new` so every project has version history from birth
-- **Fuzzy matching:** Simple substring/prefix matching on name + description for `plaibox open` (no heavy dependencies)
+- **Language:** Python 3.10+
+- **CLI framework:** click
+- **Installation:** `pipx install -e .` for global use, `pip install -e ".[dev]"` for development
+- **Git:** Automatically initialized on `plaibox new`, `plaibox import`, and `plaibox scan` so every project has version history from birth
+- **Fuzzy matching:** Scored multi-tier matching (exact > prefix > substring > word-boundary initials > subsequence) plus project ID lookup. No external dependencies.
+- **`.gitignore`:** Auto-generated on `plaibox new` and `plaibox import` with common OS, editor, Python, and Node entries. Existing `.gitignore` files are preserved.
 - **No database:** The filesystem and `.plaibox.yaml` files are the data store
-- **No web UI:** CLI only for v1
-- **No cloud/sync:** Local only for v1
-
-## What This Is Not (v1 Scope Boundaries)
-
-- No Claude Code hooks or integrations
-- No web dashboard
-- No multi-user support
-- No cloud environments
-- No retroactive scanning of existing project directories
+- **No web UI:** CLI only
+- **No cloud/sync:** Local only
 
 ## Future Extension Points
 
-These are not built in v1 but the design intentionally does not block them:
+These are not yet built but the design intentionally does not block them:
 
 - **Claude Code integration** — a hook or slash command so `plaibox new` can be triggered from within a Claude Code session.
 - **Web dashboard** — a local web UI for browsing and searching projects visually. The `.plaibox.yaml` files make this straightforward since all metadata is already on disk.
 - **Cedars platform version** — the same sandbox-to-project-to-archive lifecycle with a web UI, multi-user support, and managed cloud environments instead of local folders.
-- **Retroactive scan** — `plaibox scan ~/Projects` to catalog and import existing projects.
 - **Semantic search** — embed project descriptions and README content so `plaibox open` can match by meaning, not just string similarity. Useful once you have dozens of projects and can't remember exact names. Could use a local embedding model or API-based embeddings with a lightweight vector index stored alongside the plaibox root.
 
 The key architectural decision enabling all of these: metadata lives in the project directory (`.plaibox.yaml`), not in a central database. Any tool can read/write project state without coupling to the plaibox CLI.
