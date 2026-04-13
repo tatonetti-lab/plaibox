@@ -1338,3 +1338,48 @@ def test_ls_shows_remote_projects(tmp_path):
 
     assert "remote-app" in result.output
     assert "remote" in result.output.lower()
+
+
+def test_new_auto_pushes_when_sync_enabled(tmp_path, monkeypatch):
+    import subprocess as sp
+
+    root = tmp_path / "plaibox"
+    root.mkdir()
+    for space in ("sandbox", "projects", "archive"):
+        (root / space).mkdir()
+
+    # Set up bare repos
+    sync_bare = tmp_path / "remote-sync.git"
+    sync_bare.mkdir(parents=True)
+    sp.run(["git", "init", "--bare"], cwd=sync_bare, capture_output=True)
+
+    sandbox_bare = tmp_path / "remote-sandbox.git"
+    sandbox_bare.mkdir(parents=True)
+    sp.run(["git", "init", "--bare"], cwd=sandbox_bare, capture_output=True)
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.dump({
+        "root": str(root),
+        "stale_days": 30,
+        "sync": {
+            "enabled": True,
+            "repo": str(sync_bare),
+            "sandbox_repos": [str(sandbox_bare)],
+            "sandbox_branch_limit": 50,
+            "machine_name": "test-machine",
+        },
+    }))
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["new", "sync test project", "--config", str(config_path)])
+
+    assert result.exit_code == 0
+
+    # Verify metadata was pushed to sync repo
+    from plaibox.sync import ensure_sync_repo_cloned, read_remote_projects, pull_sync_repo
+    sync_cfg = yaml.safe_load(config_path.read_text())["sync"]
+    repo_path = ensure_sync_repo_cloned(sync_cfg, config_path.parent)
+    pull_sync_repo(repo_path)
+    remote = read_remote_projects(repo_path)
+    assert len(remote) == 1
+    assert remote[0]["meta"]["name"] == "sync-test-project"

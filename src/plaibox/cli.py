@@ -70,6 +70,35 @@ def new(description: str | None, create_venv: bool, config_path: str | None):
 
     click.echo(str(project_dir))
 
+    # Auto-push to sync if enabled
+    if is_sync_enabled(cfg):
+        sync_cfg = get_sync_config(cfg)
+        from plaibox.project import project_id
+        pid = project_id(project_dir)
+        sandbox_repo = sync_cfg["sandbox_repos"][0] if sync_cfg["sandbox_repos"] else None
+        branch_name = f"{slugify(description)}-{pid}"
+
+        # Push code to sandbox repo
+        if sandbox_repo:
+            # Need at least one commit to push
+            subprocess.run(["git", "add", "."], cwd=project_dir, capture_output=True)
+            subprocess.run(
+                ["git", "commit", "-m", "plaibox: initial project"],
+                cwd=project_dir, capture_output=True,
+            )
+            push_sandbox_branch(project_dir, sandbox_repo, branch_name)
+
+        # Push metadata to sync repo
+        auto_push(
+            project_id=pid,
+            local_meta=meta,
+            space="sandbox",
+            remote=None,
+            sandbox_repo=sandbox_repo,
+            sync_config=sync_cfg,
+            config_dir=Path(config_path).parent if config_path else DEFAULT_CONFIG_PATH.parent,
+        )
+
 
 @cli.command("ls")
 @click.argument("space", required=False, type=click.Choice(["sandbox", "projects", "archive"]))
