@@ -98,3 +98,58 @@ def remove_project_meta(project_id: str, repo_path: Path) -> bool:
         cwd=repo_path, capture_output=True,
     )
     return result.returncode == 0
+
+
+def push_sandbox_branch(project_dir: Path, sandbox_repo_url: str, branch_name: str) -> bool:
+    """Push a project's code to a branch in the sandbox repo. Returns True on success."""
+    # Add sandbox remote if not present
+    result = subprocess.run(
+        ["git", "remote", "get-url", "sandbox"],
+        cwd=project_dir, capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        subprocess.run(
+            ["git", "remote", "add", "sandbox", sandbox_repo_url],
+            cwd=project_dir, capture_output=True,
+        )
+    else:
+        subprocess.run(
+            ["git", "remote", "set-url", "sandbox", sandbox_repo_url],
+            cwd=project_dir, capture_output=True,
+        )
+
+    result = subprocess.run(
+        ["git", "push", "sandbox", f"HEAD:{branch_name}"],
+        cwd=project_dir, capture_output=True,
+    )
+    return result.returncode == 0
+
+
+def clone_sandbox_branch(sandbox_repo_url: str, branch_name: str, dest: Path) -> bool:
+    """Clone a single branch from the sandbox repo. Returns True on success."""
+    result = subprocess.run(
+        ["git", "clone", "--branch", branch_name, "--single-branch", sandbox_repo_url, str(dest)],
+        capture_output=True,
+    )
+    return result.returncode == 0
+
+
+def delete_sandbox_branch(sandbox_repo_url: str, branch_name: str) -> bool:
+    """Delete a branch from the sandbox repo remote. Returns True on success."""
+    result = subprocess.run(
+        ["git", "push", sandbox_repo_url, "--delete", branch_name],
+        capture_output=True,
+    )
+    return result.returncode == 0
+
+
+def count_sandbox_branches(sandbox_repo_url: str) -> int:
+    """Count the number of branches on the sandbox repo remote."""
+    result = subprocess.run(
+        ["git", "ls-remote", "--heads", sandbox_repo_url],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        return 0
+    lines = [l for l in result.stdout.strip().splitlines() if l]
+    return len(lines)

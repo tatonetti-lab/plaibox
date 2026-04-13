@@ -11,6 +11,10 @@ from plaibox.sync import (
     pull_sync_repo,
     read_remote_projects,
     remove_project_meta,
+    push_sandbox_branch,
+    clone_sandbox_branch,
+    delete_sandbox_branch,
+    count_sandbox_branches,
 )
 
 
@@ -123,3 +127,90 @@ def test_remove_project_meta(tmp_path):
     assert not (repo_path / "projects" / "abc123.yaml").exists()
     projects = read_remote_projects(repo_path)
     assert len(projects) == 0
+
+
+def test_push_sandbox_branch(tmp_path):
+    bare = _init_bare_repo(tmp_path / "remote-sandbox.git")
+    project_dir = tmp_path / "my-project"
+    project_dir.mkdir()
+    subprocess.run(["git", "init"], cwd=project_dir, capture_output=True)
+    (project_dir / "main.py").write_text("print('hello')")
+    subprocess.run(["git", "add", "."], cwd=project_dir, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "init"],
+        cwd=project_dir, capture_output=True,
+        env={**__import__("os").environ, "GIT_AUTHOR_NAME": "test",
+             "GIT_AUTHOR_EMAIL": "t@t.com", "GIT_COMMITTER_NAME": "test",
+             "GIT_COMMITTER_EMAIL": "t@t.com"},
+    )
+
+    success = push_sandbox_branch(project_dir, bare, "my-project-abc123")
+    assert success is True
+
+
+def test_clone_sandbox_branch(tmp_path):
+    bare = _init_bare_repo(tmp_path / "remote-sandbox.git")
+
+    source = tmp_path / "source-project"
+    source.mkdir()
+    subprocess.run(["git", "init"], cwd=source, capture_output=True)
+    (source / "app.py").write_text("print('app')")
+    subprocess.run(["git", "add", "."], cwd=source, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "init"],
+        cwd=source, capture_output=True,
+        env={**__import__("os").environ, "GIT_AUTHOR_NAME": "test",
+             "GIT_AUTHOR_EMAIL": "t@t.com", "GIT_COMMITTER_NAME": "test",
+             "GIT_COMMITTER_EMAIL": "t@t.com"},
+    )
+    push_sandbox_branch(source, bare, "app-def456")
+
+    dest = tmp_path / "cloned-project"
+    success = clone_sandbox_branch(bare, "app-def456", dest)
+
+    assert success is True
+    assert (dest / "app.py").exists()
+    assert (dest / ".git").exists()
+
+
+def test_delete_sandbox_branch(tmp_path):
+    bare = _init_bare_repo(tmp_path / "remote-sandbox.git")
+
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init"], cwd=source, capture_output=True)
+    (source / "file.txt").write_text("x")
+    subprocess.run(["git", "add", "."], cwd=source, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "init"],
+        cwd=source, capture_output=True,
+        env={**__import__("os").environ, "GIT_AUTHOR_NAME": "test",
+             "GIT_AUTHOR_EMAIL": "t@t.com", "GIT_COMMITTER_NAME": "test",
+             "GIT_COMMITTER_EMAIL": "t@t.com"},
+    )
+    push_sandbox_branch(source, bare, "temp-branch")
+
+    success = delete_sandbox_branch(bare, "temp-branch")
+    assert success is True
+
+
+def test_count_sandbox_branches(tmp_path):
+    bare = _init_bare_repo(tmp_path / "remote-sandbox.git")
+
+    assert count_sandbox_branches(bare) == 0
+
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init"], cwd=source, capture_output=True)
+    (source / "file.txt").write_text("x")
+    subprocess.run(["git", "add", "."], cwd=source, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "init"],
+        cwd=source, capture_output=True,
+        env={**__import__("os").environ, "GIT_AUTHOR_NAME": "test",
+             "GIT_AUTHOR_EMAIL": "t@t.com", "GIT_COMMITTER_NAME": "test",
+             "GIT_COMMITTER_EMAIL": "t@t.com"},
+    )
+    push_sandbox_branch(source, bare, "branch-1")
+
+    assert count_sandbox_branches(bare) == 1
