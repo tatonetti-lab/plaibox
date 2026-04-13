@@ -156,6 +156,26 @@ def count_sandbox_branches(sandbox_repo_url: str) -> int:
     return len(lines)
 
 
+def get_active_sandbox_repo(sync_config: dict) -> str | None:
+    """Get the currently active sandbox repo URL.
+
+    Returns the last repo in the list (newest). Returns None if no sandbox repos configured.
+    """
+    repos = sync_config.get("sandbox_repos", [])
+    if not repos:
+        return None
+    return repos[-1]
+
+
+def needs_sandbox_rotation(sync_config: dict) -> bool:
+    """Check if the active sandbox repo has exceeded the branch limit."""
+    repo = get_active_sandbox_repo(sync_config)
+    if repo is None:
+        return False
+    limit = sync_config.get("sandbox_branch_limit", 50)
+    return count_sandbox_branches(repo) >= limit
+
+
 def auto_push(
     project_id: str,
     local_meta: dict,

@@ -16,6 +16,7 @@ from plaibox.sync import (
     delete_sandbox_branch,
     count_sandbox_branches,
     auto_push,
+    get_active_sandbox_repo,
 )
 
 
@@ -276,3 +277,18 @@ def test_auto_push_silent_on_failure(tmp_path):
         sync_config=sync_cfg,
         config_dir=config_dir,
     )
+
+
+def test_get_active_sandbox_repo_returns_first(tmp_path):
+    sync_cfg = {
+        "sandbox_repos": ["git@github.com:user/plaibox-sandbox.git"],
+        "sandbox_branch_limit": 50,
+    }
+    result = get_active_sandbox_repo(sync_cfg)
+    assert result == "git@github.com:user/plaibox-sandbox.git"
+
+
+def test_get_active_sandbox_repo_returns_none_when_empty():
+    sync_cfg = {"sandbox_repos": [], "sandbox_branch_limit": 50}
+    result = get_active_sandbox_repo(sync_cfg)
+    assert result is None
