@@ -15,6 +15,7 @@ from plaibox.sync import (
     clone_sandbox_branch,
     delete_sandbox_branch,
     count_sandbox_branches,
+    auto_push,
 )
 
 
@@ -214,3 +215,64 @@ def test_count_sandbox_branches(tmp_path):
     push_sandbox_branch(source, bare, "branch-1")
 
     assert count_sandbox_branches(bare) == 1
+
+
+def test_auto_push_writes_and_pushes(tmp_path):
+    bare = _init_bare_repo(tmp_path / "remote-sync.git")
+    config_dir = tmp_path / ".plaibox"
+    config_dir.mkdir()
+    sync_cfg = _make_sync_config(tmp_path, bare)
+    repo_path = ensure_sync_repo_cloned(sync_cfg, config_dir)
+
+    local_meta = {
+        "name": "my-app",
+        "description": "My application",
+        "status": "sandbox",
+        "created": "2026-04-13",
+        "tags": [],
+        "tech": ["python"],
+    }
+
+    auto_push(
+        project_id="abc123",
+        local_meta=local_meta,
+        space="sandbox",
+        remote=None,
+        sandbox_repo="git@github.com:user/plaibox-sandbox.git",
+        sync_config=sync_cfg,
+        config_dir=config_dir,
+    )
+
+    project_file = repo_path / "projects" / "abc123.yaml"
+    assert project_file.exists()
+    saved = yaml.safe_load(project_file.read_text())
+    assert saved["name"] == "my-app"
+    assert saved["machine"] == "test-machine"
+    assert saved["space"] == "sandbox"
+    assert saved["sandbox_repo"] == "git@github.com:user/plaibox-sandbox.git"
+    assert "updated" in saved
+
+
+def test_auto_push_silent_on_failure(tmp_path):
+    """auto_push should not raise even if the remote is unreachable."""
+    config_dir = tmp_path / ".plaibox"
+    config_dir.mkdir()
+    sync_cfg = {
+        "enabled": True,
+        "repo": "/nonexistent/repo.git",
+        "sandbox_repos": [],
+        "sandbox_branch_limit": 50,
+        "machine_name": "test-machine",
+    }
+
+    # Should not raise
+    auto_push(
+        project_id="abc123",
+        local_meta={"name": "x", "description": "x", "status": "sandbox",
+                     "created": "2026-04-13", "tags": [], "tech": []},
+        space="sandbox",
+        remote=None,
+        sandbox_repo=None,
+        sync_config=sync_cfg,
+        config_dir=config_dir,
+    )

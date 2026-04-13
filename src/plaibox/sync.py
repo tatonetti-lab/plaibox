@@ -1,5 +1,6 @@
 # src/plaibox/sync.py
 import subprocess
+from datetime import datetime
 from pathlib import Path
 
 import yaml
@@ -153,3 +154,35 @@ def count_sandbox_branches(sandbox_repo_url: str) -> int:
         return 0
     lines = [l for l in result.stdout.strip().splitlines() if l]
     return len(lines)
+
+
+def auto_push(
+    project_id: str,
+    local_meta: dict,
+    space: str,
+    remote: str | None,
+    sandbox_repo: str | None,
+    sync_config: dict,
+    config_dir: Path,
+) -> None:
+    """Push project metadata to the sync repo. Fails silently."""
+    try:
+        repo_path = ensure_sync_repo_cloned(sync_config, config_dir)
+        pull_sync_repo(repo_path)
+
+        sync_meta = {
+            "name": local_meta.get("name", ""),
+            "description": local_meta.get("description", ""),
+            "status": local_meta.get("status", ""),
+            "created": local_meta.get("created", ""),
+            "tags": local_meta.get("tags", []),
+            "tech": local_meta.get("tech", []),
+            "remote": remote,
+            "space": space,
+            "sandbox_repo": sandbox_repo,
+            "updated": datetime.now().isoformat(timespec="seconds"),
+            "machine": sync_config["machine_name"],
+        }
+        push_project_meta(project_id, sync_meta, repo_path)
+    except Exception:
+        pass  # Silent failure — offline is fine
