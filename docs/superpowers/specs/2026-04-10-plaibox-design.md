@@ -116,5 +116,6 @@ These are not built in v1 but the design intentionally does not block them:
 - **Web dashboard** — a local web UI for browsing and searching projects visually. The `.plaibox.yaml` files make this straightforward since all metadata is already on disk.
 - **Cedars platform version** — the same sandbox-to-project-to-archive lifecycle with a web UI, multi-user support, and managed cloud environments instead of local folders.
 - **Retroactive scan** — `plaibox scan ~/Projects` to catalog and import existing projects.
+- **Semantic search** — embed project descriptions and README content so `plaibox open` can match by meaning, not just string similarity. Useful once you have dozens of projects and can't remember exact names. Could use a local embedding model or API-based embeddings with a lightweight vector index stored alongside the plaibox root.
 
 The key architectural decision enabling all of these: metadata lives in the project directory (`.plaibox.yaml`), not in a central database. Any tool can read/write project state without coupling to the plaibox CLI.
