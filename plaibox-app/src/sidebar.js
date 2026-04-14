@@ -1,4 +1,5 @@
 const { invoke } = window.__TAURI__.core;
+const { listen } = window.__TAURI__.event;
 
 let allProjects = [];
 let activeProjectPath = null;
@@ -69,23 +70,34 @@ function renderSidebar(projects) {
   }
 }
 
+function applyFilterAndRender() {
+  const query = document.getElementById('filter-input').value.toLowerCase();
+  if (!query) {
+    renderSidebar(allProjects);
+    return;
+  }
+  const filtered = allProjects.filter(
+    p => p.name.toLowerCase().includes(query) ||
+         p.description.toLowerCase().includes(query)
+  );
+  renderSidebar(filtered);
+}
+
 export function initFilter() {
   const input = document.getElementById('filter-input');
   input.addEventListener('input', () => {
-    const query = input.value.toLowerCase();
-    if (!query) {
-      renderSidebar(allProjects);
-      return;
-    }
-    const filtered = allProjects.filter(
-      p => p.name.toLowerCase().includes(query) ||
-           p.description.toLowerCase().includes(query)
-    );
-    renderSidebar(filtered);
+    applyFilterAndRender();
   });
 }
 
 export function setActiveByPath(path) {
   activeProjectPath = path;
   renderSidebar(allProjects);
+}
+
+export async function startWatching() {
+  await listen('projects-changed', (event) => {
+    allProjects = event.payload;
+    applyFilterAndRender();
+  });
 }

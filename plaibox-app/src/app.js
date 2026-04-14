@@ -1,4 +1,4 @@
-import { loadProjects, initFilter, setSidebarCallback } from './sidebar.js';
+import { loadProjects, initFilter, setSidebarCallback, startWatching } from './sidebar.js';
 import { openProject, writeToActiveTerminal } from './terminal.js';
 import { updateActionBar, setTerminalWriter } from './action-bar.js';
 
@@ -12,6 +12,7 @@ async function init() {
   });
 
   await loadProjects();
+  await startWatching();
 }
 
 window.addEventListener('DOMContentLoaded', init);

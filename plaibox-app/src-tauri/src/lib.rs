@@ -8,6 +8,11 @@ mod watcher;
 pub fn run() {
     tauri::Builder::default()
         .manage(terminal::new_shared())
+        .setup(|app| {
+            let config = projects::load_config();
+            watcher::start_watcher(app.handle().clone(), config.root);
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             projects::list_projects,
             projects::get_config,
