@@ -21,6 +21,18 @@ async function init() {
   const projects = await loadProjects();
   await startWatching();
 
+  // New project button
+  document.getElementById('btn-new').addEventListener('click', () => {
+    const description = prompt('New project description:');
+    if (!description || !description.trim()) return;
+    writeToActiveTerminal(`plaibox new "${description.trim()}"\n`);
+  });
+
+  // Sync button
+  document.getElementById('btn-sync').addEventListener('click', () => {
+    writeToActiveTerminal('plaibox sync pull\n');
+  });
+
   // Restore last project
   const lastPath = await invoke('get_last_project');
   if (lastPath) {
