@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Plaibox</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <aside id="sidebar">
+      <div id="sidebar-filter">
+        <input type="text" id="filter-input" placeholder="Filter projects...">
+      </div>
+      <div id="project-list"></div>
+      <div id="sidebar-actions">
+        <button id="btn-new">+ New</button>
+        <button id="btn-sync">Sync</button>
+      </div>
+    </aside>
+    <main id="center">
+      <div id="action-bar">
+        <span id="project-name">No project selected</span>
+        <span id="project-status"></span>
+        <div id="action-buttons"></div>
+      </div>
+      <div id="terminal-tabs"></div>
+      <div id="terminal-container"></div>
+    </main>
+    <aside id="notes-panel">
+      <div id="notes-header">
+        <span>Notes</span>
+      </div>
+      <div id="notes-content" contenteditable="true"></div>
+      <div id="notes-footer">
+        <input type="text" id="quick-note" placeholder="Quick note...">
+      </div>
+    </aside>
+  </div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
