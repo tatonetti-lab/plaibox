@@ -2,8 +2,7 @@
 src-tauri/target/
 src-tauri/gen/
 
-# Node modules (already committed for this project)
-# node_modules/
+node_modules/
 
 # Build outputs
 dist/
