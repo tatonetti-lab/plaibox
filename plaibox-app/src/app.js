@@ -1,13 +1,14 @@
 import { loadProjects, initFilter, setSidebarCallback } from './sidebar.js';
+import { openProject } from './terminal.js';
 
 async function init() {
   initFilter();
 
-  setSidebarCallback((project) => {
+  setSidebarCallback(async (project) => {
     document.getElementById('project-name').textContent = project.name;
     const statusSuffix = project.private ? '*' : '';
     document.getElementById('project-status').textContent = project.status + statusSuffix;
-    console.log('Selected project:', project.path);
+    await openProject(project.path);
   });
 
   await loadProjects();
