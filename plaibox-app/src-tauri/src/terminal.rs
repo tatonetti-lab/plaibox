@@ -15,7 +15,7 @@ struct PtyKey {
 struct PtySession {
     writer: Box<dyn Write + Send>,
     _master: Box<dyn portable_pty::MasterPty + Send>,
-    _child: Box<dyn portable_pty::Child + Send + Sync>,
+    child: Box<dyn portable_pty::Child + Send + Sync>,
 }
 
 pub struct TerminalManager {
@@ -35,7 +35,7 @@ impl TerminalManager {
         &mut self,
         project_path: &str,
         app_handle: &AppHandle,
-    ) -> u32 {
+    ) -> Result<u32, String> {
         let tab_index = *self.next_tab.get(project_path).unwrap_or(&0);
         self.next_tab.insert(project_path.to_string(), tab_index + 1);
 
@@ -52,17 +52,17 @@ impl TerminalManager {
                 pixel_width: 0,
                 pixel_height: 0,
             })
-            .expect("failed to open pty");
+            .map_err(|e| format!("Failed to open PTY: {e}"))?;
 
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
         let mut cmd = CommandBuilder::new(&shell);
         cmd.cwd(project_path);
 
-        let child = pair.slave.spawn_command(cmd).expect("failed to spawn shell");
+        let child = pair.slave.spawn_command(cmd).map_err(|e| format!("Failed to spawn shell: {e}"))?;
         drop(pair.slave);
 
-        let writer = pair.master.take_writer().expect("failed to get writer");
-        let mut reader = pair.master.try_clone_reader().expect("failed to get reader");
+        let writer = pair.master.take_writer().map_err(|e| format!("Failed to get PTY writer: {e}"))?;
+        let mut reader = pair.master.try_clone_reader().map_err(|e| format!("Failed to get PTY reader: {e}"))?;
 
         let event_name = format!("pty-output-{}-{}", project_path, tab_index);
         let handle = app_handle.clone();
@@ -85,11 +85,25 @@ impl TerminalManager {
             PtySession {
                 writer,
                 _master: pair.master,
-                _child: child,
+                child,
             },
         );
 
-        tab_index
+        Ok(tab_index)
+    }
+
+    pub fn close(&mut self, project_path: &str, tab_index: u32) {
+        let key = PtyKey {
+            project_path: project_path.to_string(),
+            tab_index,
+        };
+        if let Some(mut session) = self.sessions.remove(&key) {
+            // Drop writer/master to signal EOF to the reader thread
+            drop(session.writer);
+            drop(session._master);
+            // Kill the child process
+            let _ = session.child.kill();
+        }
     }
 
     pub fn write(&mut self, project_path: &str, tab_index: u32, data: &[u8]) {
@@ -135,8 +149,8 @@ pub fn spawn_terminal(
     project_path: String,
     state: tauri::State<'_, SharedTerminalManager>,
     app_handle: AppHandle,
-) -> u32 {
-    let mut mgr = state.lock().unwrap();
+) -> Result<u32, String> {
+    let mut mgr = state.lock().map_err(|e| format!("Terminal lock poisoned: {e}"))?;
     mgr.spawn(&project_path, &app_handle)
 }
 
@@ -146,9 +160,10 @@ pub fn write_terminal(
     tab_index: u32,
     data: String,
     state: tauri::State<'_, SharedTerminalManager>,
-) {
-    let mut mgr = state.lock().unwrap();
+) -> Result<(), String> {
+    let mut mgr = state.lock().map_err(|e| format!("Terminal lock poisoned: {e}"))?;
     mgr.write(&project_path, tab_index, data.as_bytes());
+    Ok(())
 }
 
 #[tauri::command]
@@ -158,7 +173,19 @@ pub fn resize_terminal(
     rows: u16,
     cols: u16,
     state: tauri::State<'_, SharedTerminalManager>,
-) {
-    let mut mgr = state.lock().unwrap();
+) -> Result<(), String> {
+    let mut mgr = state.lock().map_err(|e| format!("Terminal lock poisoned: {e}"))?;
     mgr.resize(&project_path, tab_index, rows, cols);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn close_terminal(
+    project_path: String,
+    tab_index: u32,
+    state: tauri::State<'_, SharedTerminalManager>,
+) -> Result<(), String> {
+    let mut mgr = state.lock().map_err(|e| format!("Terminal lock poisoned: {e}"))?;
+    mgr.close(&project_path, tab_index);
+    Ok(())
 }

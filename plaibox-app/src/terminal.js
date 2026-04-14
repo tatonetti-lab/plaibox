@@ -153,10 +153,15 @@ function showTab(projectPath) {
   setupMakeNote(active.terminal);
 }
 
+let selectionDisposable = null;
+
 function setupMakeNote(terminal) {
+  if (selectionDisposable) {
+    selectionDisposable.dispose();
+  }
   const btn = document.getElementById('make-note-btn');
 
-  terminal.onSelectionChange(() => {
+  selectionDisposable = terminal.onSelectionChange(() => {
     const selection = terminal.getSelection();
     if (selection && selection.trim().length > 0) {
       // Position the button near the terminal container
@@ -183,6 +188,7 @@ function closeTab(projectPath, index) {
   const entry = state.tabs[index];
   entry.unlisten();
   entry.terminal.dispose();
+  invoke('close_terminal', { projectPath, tabIndex: entry.tabIndex });
   state.tabs.splice(index, 1);
 
   if (state.tabs.length === 0) {

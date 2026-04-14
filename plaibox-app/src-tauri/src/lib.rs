@@ -19,6 +19,7 @@ pub fn run() {
             terminal::spawn_terminal,
             terminal::write_terminal,
             terminal::resize_terminal,
+            terminal::close_terminal,
             notes::get_notes,
             notes::save_notes,
             notes::capture_note,
