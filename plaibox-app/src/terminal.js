@@ -2,6 +2,7 @@ const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 import { Terminal } from '../node_modules/@xterm/xterm/lib/xterm.mjs';
 import { FitAddon } from '../node_modules/@xterm/addon-fit/lib/addon-fit.mjs';
+import { captureToNotes } from './notes.js';
 
 const projectTerminals = new Map();
 let currentProjectPath = null;
@@ -149,6 +150,30 @@ function showTab(projectPath) {
   });
 
   active.terminal.focus();
+  setupMakeNote(active.terminal);
+}
+
+function setupMakeNote(terminal) {
+  const btn = document.getElementById('make-note-btn');
+
+  terminal.onSelectionChange(() => {
+    const selection = terminal.getSelection();
+    if (selection && selection.trim().length > 0) {
+      // Position the button near the terminal container
+      const rect = container().getBoundingClientRect();
+      btn.style.display = 'block';
+      btn.style.top = (rect.top + 8) + 'px';
+      btn.style.right = (window.innerWidth - rect.right + 8) + 'px';
+
+      btn.onclick = () => {
+        captureToNotes(selection.trim());
+        terminal.clearSelection();
+        btn.style.display = 'none';
+      };
+    } else {
+      btn.style.display = 'none';
+    }
+  });
 }
 
 function closeTab(projectPath, index) {
