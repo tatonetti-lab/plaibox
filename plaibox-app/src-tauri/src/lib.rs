@@ -1,4 +1,4 @@
-mod projects;
+pub mod projects;
 mod notes;
 mod state;
 mod terminal;
