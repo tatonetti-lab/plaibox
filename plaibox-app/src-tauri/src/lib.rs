@@ -1,5 +1,5 @@
 pub mod projects;
-mod notes;
+pub mod notes;
 mod state;
 pub mod terminal;
 mod watcher;
@@ -19,6 +19,9 @@ pub fn run() {
             terminal::spawn_terminal,
             terminal::write_terminal,
             terminal::resize_terminal,
+            notes::get_notes,
+            notes::save_notes,
+            notes::capture_note,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
