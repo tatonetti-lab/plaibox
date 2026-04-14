@@ -1,0 +1,19 @@
+# Rust build artifacts
+src-tauri/target/
+src-tauri/gen/
+
+# Node modules (already committed for this project)
+# node_modules/
+
+# Build outputs
+dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
