@@ -13,6 +13,11 @@ dist/
 *.swp
 *.swo
 
+# Platform-specific icons (not needed for macOS)
+src-tauri/icons/Square*.png
+src-tauri/icons/android/
+src-tauri/icons/ios/
+
 # OS
 .DS_Store
 Thumbs.db
