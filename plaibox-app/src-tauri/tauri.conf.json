@@ -4,11 +4,18 @@
   "identifier": "com.plaibox.app",
   "build": {
     "frontendDist": "../src",
-    "devUrl": "http://localhost:1420",
     "beforeDevCommand": "",
     "beforeBuildCommand": ""
   },
+  "bundle": {
+    "active": true,
+    "targets": "all"
+  },
   "app": {
+    "withGlobalTauri": true,
+    "security": {
+      "dangerousDisableAssetCspModification": true
+    },
     "windows": [
       {
         "title": "Plaibox",

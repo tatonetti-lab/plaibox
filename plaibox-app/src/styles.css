@@ -234,9 +234,22 @@ html, body {
   height: 100%;
 }
 
+#notes-resize-handle {
+  width: 4px;
+  cursor: col-resize;
+  background: var(--border);
+  flex-shrink: 0;
+}
+
+#notes-resize-handle:hover,
+#notes-resize-handle.active {
+  background: var(--accent);
+}
+
 #notes-panel {
-  width: 240px;
-  min-width: 180px;
+  width: 320px;
+  min-width: 160px;
+  max-width: 600px;
   background: var(--bg-panel);
   border-left: 1px solid var(--border);
   display: flex;
@@ -256,14 +269,15 @@ html, body {
 
 #notes-content {
   flex: 1;
-  padding: 12px;
-  font-size: 12px;
+  padding: 10px;
+  font-size: 11px;
   color: var(--text);
-  line-height: 1.6;
+  line-height: 1.5;
   overflow-y: auto;
   outline: none;
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   white-space: pre-wrap;
+  word-wrap: break-word;
 }
 
 #notes-footer {

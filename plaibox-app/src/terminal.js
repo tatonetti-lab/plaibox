@@ -1,14 +1,37 @@
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
-import { Terminal } from '../node_modules/@xterm/xterm/lib/xterm.mjs';
-import { FitAddon } from '../node_modules/@xterm/addon-fit/lib/addon-fit.mjs';
 import { captureToNotes } from './notes.js';
+
+const Terminal = globalThis.Terminal;
+const FitAddon = globalThis.FitAddon?.FitAddon ?? globalThis.FitAddon;
 
 const projectTerminals = new Map();
 let currentProjectPath = null;
 
 const container = () => document.getElementById('terminal-container');
 const tabBar = () => document.getElementById('terminal-tabs');
+
+function measureTerminalSize() {
+  const el = container();
+  const div = document.createElement('div');
+  div.style.height = '100%';
+  div.style.visibility = 'hidden';
+  el.appendChild(div);
+
+  const t = new Terminal({
+    fontSize: 13,
+    fontFamily: "'SF Mono', 'Menlo', 'Consolas', monospace",
+  });
+  const fit = new FitAddon();
+  t.loadAddon(fit);
+  t.open(div);
+  fit.fit();
+  const rows = t.rows;
+  const cols = t.cols;
+  t.dispose();
+  el.removeChild(div);
+  return { rows, cols };
+}
 
 function createXterm() {
   const terminal = new Terminal({
@@ -29,8 +52,10 @@ function createXterm() {
 }
 
 async function spawnTab(projectPath) {
-  const tabIndex = await invoke('spawn_terminal', { projectPath });
   const { terminal, fitAddon } = createXterm();
+  const { rows, cols } = measureTerminalSize();
+
+  const tabIndex = await invoke('spawn_terminal', { projectPath, rows, cols });
 
   const eventName = `pty-output-${projectPath}-${tabIndex}`;
   const unlisten = await listen(eventName, (event) => {
@@ -45,7 +70,14 @@ async function spawnTab(projectPath) {
     invoke('resize_terminal', { projectPath, tabIndex, rows, cols });
   });
 
-  const entry = { terminal, fitAddon, tabIndex, unlisten, label: null };
+  // Create a persistent DOM element for this terminal
+  const div = document.createElement('div');
+  div.style.height = '100%';
+  div.style.display = 'none';
+  container().appendChild(div);
+  terminal.open(div);
+
+  const entry = { terminal, fitAddon, tabIndex, unlisten, label: null, div };
 
   if (!projectTerminals.has(projectPath)) {
     projectTerminals.set(projectPath, { tabs: [], activeTab: 0 });
@@ -124,23 +156,27 @@ function renderTabBar(projectPath) {
   bar.appendChild(addBtn);
 }
 
-function showTab(projectPath) {
-  const el = container();
-  el.innerHTML = '';
+function hideAllTerminals() {
+  // Hide all terminal divs across all projects
+  for (const [, state] of projectTerminals) {
+    for (const entry of state.tabs) {
+      entry.div.style.display = 'none';
+    }
+  }
+}
 
+function showTab(projectPath) {
   const state = projectTerminals.get(projectPath);
   if (!state || state.tabs.length === 0) return;
 
+  hideAllTerminals();
   renderTabBar(projectPath);
 
   const active = state.tabs[state.activeTab];
-  const div = document.createElement('div');
-  div.style.height = '100%';
-  el.appendChild(div);
+  active.div.style.display = 'block';
 
-  active.terminal.open(div);
+  // Fit to current container size and sync with PTY
   active.fitAddon.fit();
-
   const { rows, cols } = active.terminal;
   invoke('resize_terminal', {
     projectPath,
@@ -164,7 +200,6 @@ function setupMakeNote(terminal) {
   selectionDisposable = terminal.onSelectionChange(() => {
     const selection = terminal.getSelection();
     if (selection && selection.trim().length > 0) {
-      // Position the button near the terminal container
       const rect = container().getBoundingClientRect();
       btn.style.display = 'block';
       btn.style.top = (rect.top + 8) + 'px';
@@ -188,12 +223,12 @@ function closeTab(projectPath, index) {
   const entry = state.tabs[index];
   entry.unlisten();
   entry.terminal.dispose();
+  entry.div.remove();
   invoke('close_terminal', { projectPath, tabIndex: entry.tabIndex });
   state.tabs.splice(index, 1);
 
   if (state.tabs.length === 0) {
     projectTerminals.delete(projectPath);
-    container().innerHTML = '';
     tabBar().innerHTML = '';
     return;
   }

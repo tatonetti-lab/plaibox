@@ -35,6 +35,8 @@ impl TerminalManager {
         &mut self,
         project_path: &str,
         app_handle: &AppHandle,
+        rows: u16,
+        cols: u16,
     ) -> Result<u32, String> {
         let tab_index = *self.next_tab.get(project_path).unwrap_or(&0);
         self.next_tab.insert(project_path.to_string(), tab_index + 1);
@@ -47,8 +49,8 @@ impl TerminalManager {
         let pty_system = native_pty_system();
         let pair = pty_system
             .openpty(PtySize {
-                rows: 24,
-                cols: 80,
+                rows,
+                cols,
                 pixel_width: 0,
                 pixel_height: 0,
             })
@@ -68,12 +70,35 @@ impl TerminalManager {
         let handle = app_handle.clone();
         thread::spawn(move || {
             let mut buf = [0u8; 4096];
+            let mut pending = Vec::new(); // holds incomplete UTF-8 tail bytes
             loop {
-                match reader.read(&mut buf) {
+                // Read into buffer, leaving room to prepend pending bytes
+                let offset = pending.len();
+                match reader.read(&mut buf[offset..]) {
                     Ok(0) => break,
                     Ok(n) => {
-                        let data = String::from_utf8_lossy(&buf[..n]).to_string();
-                        let _ = handle.emit(&event_name, data);
+                        // Prepend any pending bytes from the previous read
+                        buf[..offset].copy_from_slice(&pending);
+                        pending.clear();
+                        let total = offset + n;
+                        let chunk = &buf[..total];
+
+                        // Find the last valid UTF-8 boundary
+                        match std::str::from_utf8(chunk) {
+                            Ok(s) => {
+                                let _ = handle.emit(&event_name, s.to_string());
+                            }
+                            Err(e) => {
+                                // Send the valid portion
+                                let valid_up_to = e.valid_up_to();
+                                if valid_up_to > 0 {
+                                    let s = std::str::from_utf8(&chunk[..valid_up_to]).unwrap();
+                                    let _ = handle.emit(&event_name, s.to_string());
+                                }
+                                // Save the incomplete tail for the next read
+                                pending.extend_from_slice(&chunk[valid_up_to..]);
+                            }
+                        }
                     }
                     Err(_) => break,
                 }
@@ -147,11 +172,13 @@ pub fn new_shared() -> SharedTerminalManager {
 #[tauri::command]
 pub fn spawn_terminal(
     project_path: String,
+    rows: u16,
+    cols: u16,
     state: tauri::State<'_, SharedTerminalManager>,
     app_handle: AppHandle,
 ) -> Result<u32, String> {
     let mut mgr = state.lock().map_err(|e| format!("Terminal lock poisoned: {e}"))?;
-    mgr.spawn(&project_path, &app_handle)
+    mgr.spawn(&project_path, &app_handle, rows, cols)
 }
 
 #[tauri::command]

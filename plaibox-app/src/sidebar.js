@@ -48,11 +48,14 @@ function renderSidebar(projects) {
         item.classList.add('active');
       }
 
-      let displayName = project.name;
+      item.textContent = project.name;
       if (project.private) {
-        displayName += ' *';
+        const lock = document.createElement('span');
+        lock.textContent = ' \u{1F512}';
+        lock.style.cssText = 'font-size:9px;float:right;opacity:0.5;';
+        lock.title = 'Private';
+        item.appendChild(lock);
       }
-      item.textContent = displayName;
       item.title = project.description;
 
       item.addEventListener('click', () => {

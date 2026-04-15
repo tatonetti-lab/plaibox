@@ -5,9 +5,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Plaibox</title>
   <link rel="stylesheet" href="styles.css">
-  <link rel="stylesheet" href="../node_modules/@xterm/xterm/css/xterm.css">
+  <link rel="stylesheet" href="vendor/xterm.css">
 </head>
 <body>
+  <script>
+    // Hide module/exports so UMD bundles export to globalThis instead of CJS
+    var __m = window.module; var __e = window.exports;
+    delete window.module; delete window.exports;
+  </script>
+  <script src="vendor/xterm.js"></script>
+  <script src="vendor/addon-fit.js"></script>
+  <script>
+    if (typeof __m !== 'undefined') window.module = __m;
+    if (typeof __e !== 'undefined') window.exports = __e;
+  </script>
   <div id="app">
     <aside id="sidebar">
       <div id="sidebar-filter">
@@ -28,6 +39,7 @@
       <div id="terminal-tabs"></div>
       <div id="terminal-container"></div>
     </main>
+    <div id="notes-resize-handle"></div>
     <aside id="notes-panel">
       <div id="notes-header">
         <span>Notes</span>

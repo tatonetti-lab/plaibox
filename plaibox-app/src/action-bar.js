@@ -4,13 +4,26 @@ const { invoke } = window.__TAURI__.core;
 
 let currentProject = null;
 let writeToTerminal = null;
+let inSession = false; // true when an AI session (Claude/Codex) is active in the terminal
 
 export function setTerminalWriter(fn) {
   writeToTerminal = fn;
 }
 
+export function refreshActionBar() {
+  // Re-fetch project data from the backend and update the bar
+  if (!currentProject) return;
+  invoke('list_projects').then(projects => {
+    const updated = projects.find(p => p.path === currentProject.path);
+    if (updated) {
+      updateActionBar(updated);
+    }
+  });
+}
+
 export function updateActionBar(project) {
   currentProject = project;
+  inSession = false; // reset when switching projects
 
   document.getElementById('project-name').textContent = project.name;
   const statusSuffix = project.private ? '*' : '';
@@ -18,6 +31,43 @@ export function updateActionBar(project) {
 
   const buttons = document.getElementById('action-buttons');
   buttons.innerHTML = '';
+
+  // AI session buttons
+  if (project.session) {
+    const resumeBtn = document.createElement('button');
+    resumeBtn.textContent = 'Resume';
+    resumeBtn.title = project.session;
+    resumeBtn.style.borderColor = 'var(--accent)';
+    resumeBtn.addEventListener('click', () => {
+      const cmd = project.session.replace(/^(claude|codex)\b/, 'plaibox $1');
+      runAction(cmd, false); // don't prefix — this IS the session launch
+      inSession = true;
+      resumeBtn.disabled = true;
+      resumeBtn.textContent = 'Resumed';
+    });
+    buttons.appendChild(resumeBtn);
+  } else {
+    // No session — offer to launch Claude or Codex
+    const claudeBtn = document.createElement('button');
+    claudeBtn.textContent = 'Claude';
+    claudeBtn.addEventListener('click', () => {
+      runAction('plaibox claude', false);
+      inSession = true;
+      claudeBtn.remove();
+      codexBtn.remove();
+    });
+    buttons.appendChild(claudeBtn);
+
+    const codexBtn = document.createElement('button');
+    codexBtn.textContent = 'Codex';
+    codexBtn.addEventListener('click', () => {
+      runAction('plaibox codex', false);
+      inSession = true;
+      claudeBtn.remove();
+      codexBtn.remove();
+    });
+    buttons.appendChild(codexBtn);
+  }
 
   const actions = getActionsForStatus(project.status, project.space);
   for (const action of actions) {
@@ -57,9 +107,10 @@ function getActionsForStatus(status, space) {
   }
 }
 
-function runAction(command) {
+function runAction(command, useSessionPrefix = true) {
   if (!command || !writeToTerminal) return;
-  writeToTerminal(command + '\n');
+  const prefix = (useSessionPrefix && inSession) ? '! ' : '';
+  writeToTerminal(prefix + command + '\n');
 }
 
 export function clearActionBar() {
